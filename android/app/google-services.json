@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "653306187781",
+    "project_id": "swd392-mobile-313c1",
+    "storage_bucket": "swd392-mobile-313c1.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:653306187781:android:f078dc93168f8aa4e20c6c",
+        "android_client_info": {
+          "package_name": "com.example.swd392_mobile_clean"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDjPgQqz1vWMlgz05J3JQBx_CzE-pOvP2E"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

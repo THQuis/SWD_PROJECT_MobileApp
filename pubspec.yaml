@@ -1,11 +1,11 @@
 name: swd392_mobile_clean
-description: "A new Flutter project."
+description: A new Flutter project.
 publish_to: 'none'
 
 version: 1.0.0+1
 
 environment:
-  sdk: ^3.10.7
+  sdk: ">=3.2.0 <4.0.0"
 
 dependencies:
   flutter:
@@ -13,6 +13,9 @@ dependencies:
   cupertino_icons: ^1.0.8
   http: ^1.2.0
   fl_chart: ^0.68.0
+
+  firebase_core: ^2.27.0
+  firebase_messaging: ^14.7.10
 
 dev_dependencies:
   flutter_test:
