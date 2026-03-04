@@ -24,14 +24,14 @@ class _LoginScreenState extends State<LoginScreen> {
       password: passwordController.text,
     );
 
-    final token = result["token"]; // 👈 LẤY TOKEN RA
+
 
     if (!mounted) return;
 
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(
-        builder: (_) => DashboardScreen(token: token),
+        builder: (_) => const DashboardScreen(),
       ),
     );
   } catch (e) {

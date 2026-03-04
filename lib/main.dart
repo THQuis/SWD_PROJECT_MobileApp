@@ -19,7 +19,9 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp();
 
-  FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
+  FirebaseMessaging.onBackgroundMessage(
+    _firebaseMessagingBackgroundHandler,
+  );
 
   runApp(const MyApp());
 }
@@ -32,7 +34,6 @@ class MyApp extends StatefulWidget {
 }
 
 class _MyAppState extends State<MyApp> {
-
   @override
   void initState() {
     super.initState();
@@ -48,8 +49,8 @@ class _MyAppState extends State<MyApp> {
       sound: true,
     );
 
-    String? token = await messaging.getToken();
-    print("🔥 FCM TOKEN: $token");
+    String? fcmToken = await messaging.getToken();
+    print("🔥 FCM TOKEN: $fcmToken");
 
     FirebaseMessaging.onMessage.listen((RemoteMessage message) {
       print("📩 Foreground message: ${message.notification?.title}");
@@ -60,7 +61,7 @@ class _MyAppState extends State<MyApp> {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      initialRoute: '/dashboard',
+      initialRoute: '/login',
       routes: {
         '/login': (context) => const LoginScreen(),
         '/register': (context) => const RegisterScreen(),
@@ -68,7 +69,7 @@ class _MyAppState extends State<MyApp> {
         '/sites': (context) => const SitesScreen(),
         '/hubs': (context) => const HubsScreen(),
         '/sensors': (context) => const SensorsScreen(),
-        '/alerts': (context) => const AlertsScreen(),
+        '/alerts': (context) => AlertsScreen(), // ❗ bỏ const nếu lỗi
       },
     );
   }

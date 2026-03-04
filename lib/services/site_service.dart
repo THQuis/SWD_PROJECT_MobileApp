@@ -1,0 +1,46 @@
+import 'dart:convert';
+import 'package:http/http.dart' as http;
+
+class SiteService {
+  static const String baseUrl = 'https://swd-project-api.onrender.com/api';
+
+  Future<List<dynamic>> fetchSites(String token) async {
+    try {
+      final response = await http.get(
+        Uri.parse('$baseUrl/sites'),
+        headers: {
+          'Authorization': 'Bearer $token',
+          'accept': '*/*',
+        },
+      ).timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        final dynamic body = jsonDecode(response.body);
+        if (body is List) {
+          return body;
+        } else if (body is Map && body.containsKey('data')) {
+          return body['data'] ?? [];
+        }
+        return [];
+      } else {
+        throw Exception('Server error: ${response.statusCode}');
+      }
+    } catch (e) {
+      throw Exception('Connection error: $e');
+    }
+  }
+
+  Future<bool> addSite(String token, Map<String, dynamic> data) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/sites'),
+      headers: {
+        'Authorization': 'Bearer $token',
+        'Content-Type': 'application/json',
+        'accept': '*/*',
+      },
+      body: jsonEncode(data),
+    );
+
+    return response.statusCode == 200 || response.statusCode == 201;
+  }
+}

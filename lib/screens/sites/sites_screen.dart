@@ -1,4 +1,8 @@
+import 'dart:ui';
 import 'package:flutter/material.dart';
+import '../../services/site_service.dart';
+import '../../services/auth_service.dart';
+import '../../widgets/app_drawer.dart';
 import 'add_site_dialog.dart';
 
 class SitesScreen extends StatefulWidget {
@@ -9,31 +13,89 @@ class SitesScreen extends StatefulWidget {
 }
 
 class _SitesScreenState extends State<SitesScreen> {
-  final List<Map<String, String>> sites = [
-    {
-      'id': 'S-CG-001',
-      'name': 'WinMart Cầu Giấy',
-      'address': '123 Xuân Thủy, Hà Nội',
-    },
-    {
-      'id': 'S-CG-002',
-      'name': 'WinMart Trung Kính',
-      'address': '456 Trung Kính, Hà Nội',
-    },
-    {
-      'id': 'S-CG-003',
-      'name': 'WinMart Mỹ Đình',
-      'address': '789 Mỹ Đình, Hà Nội',
-    },
-  ];
+  final SiteService _siteService = SiteService();
+  final TextEditingController _searchController = TextEditingController();
+
+  List<dynamic> _allSites = [];
+  List<dynamic> _filteredSites = [];
+  bool _isLoading = true;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSites();
+  }
+
+  Future<void> _loadSites() async {
+    setState(() {
+      _isLoading = true;
+      _error = null;
+    });
+    try {
+      final token = AuthService.token;
+      if (token == null) {
+        setState(() {
+          _error = "No session found. Please login again.";
+          _isLoading = false;
+        });
+        return;
+      }
+
+      final data = await _siteService.fetchSites(token);
+      setState(() {
+        _allSites = data;
+        _filteredSites = data;
+        _isLoading = false;
+        _error = null;
+      });
+    } catch (e) {
+      debugPrint("Load sites error: $e");
+      setState(() {
+        _error = "Error loading sites: $e";
+        _isLoading = false;
+      });
+    }
+  }
+
+  void _filterSites(String query) {
+    setState(() {
+      _filteredSites = _allSites
+          .where((s) =>
+              (s['name'] ?? '').toLowerCase().contains(query.toLowerCase()) ||
+              (s['address'] ?? '').toLowerCase().contains(query.toLowerCase()))
+          .toList();
+    });
+  }
 
   void _openAddSiteDialog() {
     showDialog(
       context: context,
       builder: (_) => AddSiteDialog(
-        onSubmit: (site) {
-          setState(() => sites.add(site));
+        onSuccess: () {
+          _loadSites();
         },
+      ),
+    );
+  }
+
+  Widget _glassContainer(
+      {required Widget child,
+      double opacity = 0.05,
+      double blur = 20.0,
+      double borderRadius = 16.0}) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(borderRadius),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: blur, sigmaY: blur),
+        child: Container(
+          decoration: BoxDecoration(
+            color: Colors.white.withOpacity(opacity),
+            borderRadius: BorderRadius.circular(borderRadius),
+            border: Border.all(color: Colors.white.withOpacity(0.08)),
+          ),
+          child: child,
+        ),
       ),
     );
   }
@@ -41,32 +103,76 @@ class _SitesScreenState extends State<SitesScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF0A0A0A),
-
-      /// ===== DRAWER (GIỐNG DASHBOARD) =====
-      drawer: _buildDrawer(context),
-
-      /// ===== APP BAR =====
+      backgroundColor: const Color(0xFF0D0D0D),
+      drawer: const AppDrawer(),
       appBar: AppBar(
-        backgroundColor: const Color(0xFF0E0E0E),
+        backgroundColor: Colors.transparent,
         elevation: 0,
         iconTheme: const IconThemeData(color: Colors.white),
         title: const Text(
-          'Sites',
+          'Sites Management',
           style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
         ),
       ),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : RefreshIndicator(
+              onRefresh: _loadSites,
+              child: SingleChildScrollView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _header(),
+                    const SizedBox(height: 24),
+                    if (_error != null) _errorView(),
+                    if (_error == null) ...[
+                      _searchBar(),
+                      const SizedBox(height: 24),
+                      _sitesList(),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+    );
+  }
 
-      /// ===== BODY =====
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _header(),
-            const SizedBox(height: 24),
-            _sitesList(),
-          ],
+  Widget _errorView() {
+    return Column(
+      children: [
+        const SizedBox(height: 40),
+        const Icon(Icons.error_outline, color: Colors.redAccent, size: 48),
+        const SizedBox(height: 16),
+        Text(
+          _error!,
+          textAlign: TextAlign.center,
+          style: const TextStyle(color: Colors.white70),
+        ),
+        const SizedBox(height: 24),
+        ElevatedButton(
+          onPressed: _loadSites,
+          child: const Text("Retry"),
+        ),
+      ],
+    );
+  }
+
+  Widget _searchBar() {
+    return _glassContainer(
+      opacity: 0.08,
+      borderRadius: 12,
+      child: TextField(
+        controller: _searchController,
+        onChanged: _filterSites,
+        style: const TextStyle(color: Colors.white),
+        decoration: InputDecoration(
+          prefixIcon: const Icon(Icons.search, color: Colors.white38),
+          hintText: "Search sites...",
+          hintStyle: const TextStyle(color: Colors.white38),
+          border: InputBorder.none,
+          contentPadding: const EdgeInsets.symmetric(vertical: 15),
         ),
       ),
     );
@@ -81,35 +187,32 @@ class _SitesScreenState extends State<SitesScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: const [
               Text(
-                'IoT Sites',
+                'IoT Sites Management',
                 style: TextStyle(
                   color: Colors.white,
-                  fontSize: 22,
+                  fontSize: 24,
                   fontWeight: FontWeight.bold,
                 ),
               ),
               SizedBox(height: 6),
               Text(
-                'Manage environmental monitoring locations.',
-                style: TextStyle(color: Colors.white70),
+                'Manage environmental monitoring sites.',
+                style: TextStyle(color: Colors.white54),
               ),
             ],
           ),
         ),
         ElevatedButton.icon(
           onPressed: _openAddSiteDialog,
-          icon: const Icon(Icons.add, size: 18),
-          label: const Text('Add Site'),
+          icon: const Icon(Icons.add_rounded, size: 20),
+          label: const Text('Add New Site'),
           style: ElevatedButton.styleFrom(
-            backgroundColor: Colors.blueAccent,
+            backgroundColor: const Color(0xFF1A1F2C),
             foregroundColor: Colors.white,
             elevation: 0,
-            padding: const EdgeInsets.symmetric(
-              horizontal: 16,
-              vertical: 12,
-            ),
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: BorderRadius.circular(12),
             ),
           ),
         ),
@@ -119,54 +222,69 @@ class _SitesScreenState extends State<SitesScreen> {
 
   // ================= SITES LIST =================
   Widget _sitesList() {
+    if (_filteredSites.isEmpty) {
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.only(top: 100),
+          child: Text("No sites found", style: TextStyle(color: Colors.white38)),
+        ),
+      );
+    }
     return Column(
-      children: sites.map((site) {
+      children: _filteredSites.map((site) {
+        final id = site['id']?.toString() ?? 'N/A';
+        final name = site['name'] ?? 'Unknown Site';
+        final address = site['address'] ?? 'No address provided';
+        final org = site['orgName'] ?? 'Co.opmart';
+        final hubs = site['hubCount']?.toString() ?? '0';
+
         return Container(
-          margin: const EdgeInsets.only(bottom: 14),
-          decoration: _card(),
-          child: ListTile(
-            contentPadding:
-                const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-            leading: Container(
-              width: 44,
-              height: 44,
-              decoration: BoxDecoration(
-                color: Colors.blueAccent.withOpacity(0.15),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: const Icon(
-                Icons.store,
-                color: Colors.blueAccent,
-              ),
-            ),
-            title: Text(
-              site['name']!,
-              style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            subtitle: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const SizedBox(height: 4),
-                Text(
-                  site['address']!,
-                  style: const TextStyle(color: Colors.white70),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  site['id']!,
-                  style: const TextStyle(
-                    color: Colors.white38,
-                    fontSize: 12,
+          margin: const EdgeInsets.only(bottom: 16),
+          child: _glassContainer(
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: Row(
+                children: [
+                  Expanded(
+                    flex: 1,
+                    child: Text(id,
+                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
                   ),
-                ),
-              ],
-            ),
-            trailing: const Icon(
-              Icons.chevron_right,
-              color: Colors.white38,
+                  Expanded(
+                    flex: 2,
+                    child: Text(org, style: const TextStyle(color: Colors.white70, fontSize: 13)),
+                  ),
+                  Expanded(
+                    flex: 4,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(name,
+                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                        const SizedBox(height: 4),
+                        Text(address,
+                            style: TextStyle(color: Colors.white.withOpacity(0.4), fontSize: 11)),
+                      ],
+                    ),
+                  ),
+                  Expanded(
+                    flex: 1,
+                    child: Center(
+                      child: Text(hubs,
+                          style: const TextStyle(
+                              color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+                    ),
+                  ),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.edit_outlined, color: Colors.white.withOpacity(0.3), size: 20),
+                      const SizedBox(width: 8),
+                      Icon(Icons.delete_outline_rounded, color: Colors.white.withOpacity(0.3), size: 20),
+                    ],
+                  ),
+                ],
+              ),
             ),
           ),
         );
@@ -174,120 +292,4 @@ class _SitesScreenState extends State<SitesScreen> {
     );
   }
 
-  // ================= DRAWER =================
-  Drawer _buildDrawer(BuildContext context) {
-    return Drawer(
-      width: 280,
-      backgroundColor: const Color(0xFF0C0C0C),
-      child: SafeArea(
-        child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.all(20),
-              child: Row(
-                children: const [
-                  Icon(Icons.dashboard,
-                      color: Colors.blueAccent, size: 32),
-                  SizedBox(width: 12),
-                  Text(
-                    'SMART STORE\nIoT Monitoring',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const Divider(color: Colors.white12),
-
-            _menuItem(context, Icons.dashboard, 'Dashboard', '/dashboard'),
-            _menuItem(context, Icons.store, 'Sites', '/sites', active: true),
-            _menuItem(context, Icons.router, 'Hubs', '/hubs'),
-            _menuItem(context, Icons.sensors, 'Sensors', '/sensors'),
-            _menuItem(context, Icons.warning, 'Alerts', '/alerts'),
-
-            const Spacer(),
-            const Divider(color: Colors.white12),
-            _logoutItem(context),
-            const SizedBox(height: 12),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _menuItem(
-    BuildContext context,
-    IconData icon,
-    String title,
-    String route, {
-    bool active = false,
-  }) {
-    return InkWell(
-      onTap: () {
-        Navigator.pop(context);
-        if (!active) {
-          Navigator.pushReplacementNamed(context, route);
-        }
-      },
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-        decoration: active
-            ? BoxDecoration(
-                color: Colors.white.withOpacity(0.05),
-              )
-            : null,
-        child: Row(
-          children: [
-            Icon(
-              icon,
-              color: active ? Colors.white : Colors.white70,
-              size: 20,
-            ),
-            const SizedBox(width: 16),
-            Text(
-              title,
-              style: TextStyle(
-                color: active ? Colors.white : Colors.white70,
-                fontWeight:
-                    active ? FontWeight.bold : FontWeight.normal,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _logoutItem(BuildContext context) {
-    return InkWell(
-      onTap: () {
-        Navigator.pop(context);
-        Navigator.pushReplacementNamed(context, '/login');
-      },
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-        child: Row(
-          children: const [
-            Icon(Icons.logout, color: Colors.redAccent),
-            SizedBox(width: 16),
-            Text(
-              'Logout',
-              style: TextStyle(
-                color: Colors.redAccent,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  BoxDecoration _card() => BoxDecoration(
-        color: const Color(0xFF141414),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFF262626)),
-      );
 }
