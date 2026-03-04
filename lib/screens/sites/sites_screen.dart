@@ -4,6 +4,7 @@ import '../../services/site_service.dart';
 import '../../services/auth_service.dart';
 import '../../widgets/app_drawer.dart';
 import 'add_site_dialog.dart';
+import 'edit_site_dialog.dart';
 
 class SitesScreen extends StatefulWidget {
   const SitesScreen({super.key});
@@ -77,6 +78,69 @@ class _SitesScreenState extends State<SitesScreen> {
         },
       ),
     );
+  }
+
+  void _openEditSiteDialog(dynamic site) {
+    showDialog(
+      context: context,
+      builder: (_) => EditSiteDialog(
+        site: site,
+        onSuccess: () {
+          _loadSites();
+        },
+      ),
+    );
+  }
+
+  Future<void> _deleteSite(dynamic site) async {
+    final bool? confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF1A1F2C),
+        title: const Text("Delete Site", style: TextStyle(color: Colors.white)),
+        content: Text("Are you sure you want to delete ${site['name']}?",
+            style: const TextStyle(color: Colors.white70)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text("CANCEL"),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text("DELETE", style: TextStyle(color: Colors.redAccent)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      try {
+        final token = AuthService.token;
+        if (token == null) return;
+
+        final success = await _siteService.deleteSite(token, site['siteId']);
+        if (success) {
+          _loadSites();
+          if (mounted) {
+             ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text("Site deleted successfully")),
+            );
+          }
+        } else {
+           if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text("Failed to delete site. It might have active hubs.")),
+            );
+          }
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text("Error: $e")),
+          );
+        }
+      }
+    }
   }
 
   Widget _glassContainer(
@@ -232,7 +296,7 @@ class _SitesScreenState extends State<SitesScreen> {
     }
     return Column(
       children: _filteredSites.map((site) {
-        final id = site['id']?.toString() ?? 'N/A';
+        final id = site['siteId']?.toString() ?? 'N/A';
         final name = site['name'] ?? 'Unknown Site';
         final address = site['address'] ?? 'No address provided';
         final org = site['orgName'] ?? 'Co.opmart';
@@ -278,9 +342,14 @@ class _SitesScreenState extends State<SitesScreen> {
                   Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(Icons.edit_outlined, color: Colors.white.withOpacity(0.3), size: 20),
-                      const SizedBox(width: 8),
-                      Icon(Icons.delete_outline_rounded, color: Colors.white.withOpacity(0.3), size: 20),
+                      IconButton(
+                        icon: Icon(Icons.edit_outlined, color: Colors.white.withOpacity(0.3), size: 20),
+                        onPressed: () => _openEditSiteDialog(site),
+                      ),
+                      IconButton(
+                        icon: Icon(Icons.delete_outline_rounded, color: Colors.white.withOpacity(0.3), size: 20),
+                        onPressed: () => _deleteSite(site),
+                      ),
                     ],
                   ),
                 ],

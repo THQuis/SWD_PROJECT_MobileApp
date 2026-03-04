@@ -1,13 +1,13 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 
-class SiteService {
+class HubService {
   static const String baseUrl = 'https://swd-project-api.onrender.com/api';
 
-  Future<List<dynamic>> fetchSites(String token) async {
+  Future<List<dynamic>> fetchHubs(String token) async {
     try {
       final response = await http.get(
-        Uri.parse('$baseUrl/site'),
+        Uri.parse('$baseUrl/hubs'),
         headers: {
           'Authorization': 'Bearer $token',
           'accept': '*/*',
@@ -30,9 +30,9 @@ class SiteService {
     }
   }
 
-  Future<bool> addSite(String token, Map<String, dynamic> data) async {
+  Future<bool> addHub(String token, Map<String, dynamic> data) async {
     final response = await http.post(
-      Uri.parse('$baseUrl/site'),
+      Uri.parse('$baseUrl/hubs'),
       headers: {
         'Authorization': 'Bearer $token',
         'Content-Type': 'application/json',
@@ -41,12 +41,19 @@ class SiteService {
       body: jsonEncode(data),
     );
 
-    return response.statusCode == 200 || response.statusCode == 201;
+    if (response.statusCode == 200 || response.statusCode == 201) return true;
+    
+    try {
+      final errorData = jsonDecode(response.body);
+      throw Exception(errorData['message'] ?? 'Server error: ${response.statusCode}');
+    } catch (_) {
+      throw Exception('Server error: ${response.statusCode}');
+    }
   }
 
-  Future<bool> updateSite(String token, int siteId, Map<String, dynamic> data) async {
+  Future<bool> updateHub(String token, int hubId, Map<String, dynamic> data) async {
     final response = await http.put(
-      Uri.parse('$baseUrl/site/$siteId'),
+      Uri.parse('$baseUrl/hubs/$hubId'),
       headers: {
         'Authorization': 'Bearer $token',
         'Content-Type': 'application/json',
@@ -58,9 +65,9 @@ class SiteService {
     return response.statusCode == 200;
   }
 
-  Future<bool> deleteSite(String token, int siteId) async {
+  Future<bool> deleteHub(String token, int hubId) async {
     final response = await http.delete(
-      Uri.parse('$baseUrl/site/$siteId'),
+      Uri.parse('$baseUrl/hubs/$hubId'),
       headers: {
         'Authorization': 'Bearer $token',
         'accept': '*/*',

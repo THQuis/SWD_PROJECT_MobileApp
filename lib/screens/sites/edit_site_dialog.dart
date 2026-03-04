@@ -2,24 +2,34 @@ import 'package:flutter/material.dart';
 import '../../services/site_service.dart';
 import '../../services/auth_service.dart';
 
-class AddSiteDialog extends StatefulWidget {
+class EditSiteDialog extends StatefulWidget {
+  final dynamic site;
   final VoidCallback onSuccess;
 
-  const AddSiteDialog({super.key, required this.onSuccess});
+  const EditSiteDialog({super.key, required this.site, required this.onSuccess});
 
   @override
-  State<AddSiteDialog> createState() => _AddSiteDialogState();
+  State<EditSiteDialog> createState() => _EditSiteDialogState();
 }
 
-class _AddSiteDialogState extends State<AddSiteDialog> {
+class _EditSiteDialogState extends State<EditSiteDialog> {
   final SiteService _siteService = SiteService();
   
-  final orgController = TextEditingController(text: "Co.opmart");
-  final nameController = TextEditingController();
-  final addressController = TextEditingController();
-  final geoController = TextEditingController();
+  late final TextEditingController orgController;
+  late final TextEditingController nameController;
+  late final TextEditingController addressController;
+  late final TextEditingController geoController;
 
   bool _isSubmitting = false;
+
+  @override
+  void initState() {
+    super.initState();
+    orgController = TextEditingController(text: widget.site['orgName'] ?? "Co.opmart");
+    nameController = TextEditingController(text: widget.site['name'] ?? "");
+    addressController = TextEditingController(text: widget.site['address'] ?? "");
+    geoController = TextEditingController(text: widget.site['geoLocation'] ?? "");
+  }
 
   Future<void> _submit() async {
     if (nameController.text.isEmpty || addressController.text.isEmpty) {
@@ -35,18 +45,18 @@ class _AddSiteDialogState extends State<AddSiteDialog> {
       final token = AuthService.token;
       if (token == null) return;
 
-      final success = await _siteService.addSite(token, {
+      final success = await _siteService.updateSite(token, widget.site['siteId'], {
         "name": nameController.text,
         "address": addressController.text,
         "geoLocation": geoController.text.isNotEmpty ? geoController.text : "0, 0",
-        "orgId": 1, // Default for now
+        "orgId": widget.site['orgId'] ?? 1,
       });
 
       if (success) {
         widget.onSuccess();
         if (mounted) Navigator.pop(context);
       } else {
-        throw Exception("Failed to add site");
+        throw Exception("Failed to update site");
       }
     } catch (e) {
       if (mounted) {
@@ -115,8 +125,8 @@ class _AddSiteDialogState extends State<AddSiteDialog> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text(
-                    'ADD NEW SITE',
+                   const Text(
+                    'EDIT SITE',
                     style: TextStyle(
                       color: Colors.white,
                       fontSize: 18,
@@ -192,7 +202,7 @@ class _AddSiteDialogState extends State<AddSiteDialog> {
                               width: 20,
                               child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                             )
-                          : const Text('ADD SITE', style: TextStyle(fontWeight: FontWeight.bold)),
+                          : const Text('SAVE CHANGES', style: TextStyle(fontWeight: FontWeight.bold)),
                     ),
                   ),
                 ],

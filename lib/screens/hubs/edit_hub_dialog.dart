@@ -3,22 +3,23 @@ import '../../services/hub_service.dart';
 import '../../services/site_service.dart';
 import '../../services/auth_service.dart';
 
-class AddHubDialog extends StatefulWidget {
+class EditHubDialog extends StatefulWidget {
+  final dynamic hub;
   final VoidCallback onSuccess;
 
-  const AddHubDialog({super.key, required this.onSuccess});
+  const EditHubDialog({super.key, required this.hub, required this.onSuccess});
 
   @override
-  State<AddHubDialog> createState() => _AddHubDialogState();
+  State<EditHubDialog> createState() => _EditHubDialogState();
 }
 
-class _AddHubDialogState extends State<AddHubDialog> {
+class _EditHubDialogState extends State<EditHubDialog> {
   final HubService _hubService = HubService();
   final SiteService _siteService = SiteService();
   
   final _formKey = GlobalKey<FormState>();
-  final nameController = TextEditingController();
-  final macController = TextEditingController();
+  late final TextEditingController nameController;
+  late final TextEditingController macController;
   
   int? selectedSiteId;
   List<dynamic> sites = [];
@@ -28,6 +29,9 @@ class _AddHubDialogState extends State<AddHubDialog> {
   @override
   void initState() {
     super.initState();
+    nameController = TextEditingController(text: widget.hub['name'] ?? "");
+    macController = TextEditingController(text: widget.hub['macAddress'] ?? "");
+    selectedSiteId = widget.hub['siteId'];
     _loadSites();
   }
 
@@ -40,9 +44,6 @@ class _AddHubDialogState extends State<AddHubDialog> {
       if (mounted) {
         setState(() {
           sites = data;
-          if (sites.isNotEmpty) {
-            selectedSiteId = sites[0]['siteId'];
-          }
           _isLoadingSites = false;
         });
       }
@@ -71,7 +72,7 @@ class _AddHubDialogState extends State<AddHubDialog> {
       final token = AuthService.token;
       if (token == null) return;
 
-      final success = await _hubService.addHub(token, {
+      final success = await _hubService.updateHub(token, widget.hub['hubId'], {
         "name": nameController.text.trim(),
         "macAddress": macController.text.trim(),
         "siteId": selectedSiteId,
@@ -80,15 +81,13 @@ class _AddHubDialogState extends State<AddHubDialog> {
       if (success) {
         widget.onSuccess();
         if (mounted) Navigator.pop(context);
+      } else {
+        throw Exception("Failed to update hub.");
       }
     } catch (e) {
       if (mounted) {
-        String message = e.toString();
-        if (message.startsWith('Exception: ')) {
-          message = message.substring(11);
-        }
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(message)),
+          SnackBar(content: Text("Error: $e")),
         );
       }
     } finally {
@@ -156,7 +155,7 @@ class _AddHubDialogState extends State<AddHubDialog> {
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     const Text(
-                      'ADD NEW HUB',
+                      'EDIT HUB',
                       style: TextStyle(
                         color: Colors.white,
                         fontSize: 18,
@@ -250,7 +249,7 @@ class _AddHubDialogState extends State<AddHubDialog> {
                                 width: 20,
                                 child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                               )
-                            : const Text('REGISTER HUB', style: TextStyle(fontWeight: FontWeight.bold)),
+                            : const Text('SAVE CHANGES', style: TextStyle(fontWeight: FontWeight.bold)),
                       ),
                     ),
                   ],
