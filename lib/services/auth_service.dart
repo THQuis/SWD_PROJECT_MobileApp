@@ -7,6 +7,8 @@ static const String baseUrl =
   'https://swd-project-api.onrender.com/api';
 
   static String? _token;
+  static String? _role;
+  static Map<String, dynamic>? _user;
 
   // ================= LOGIN =================
   static Future<Map<String, dynamic>> login({
@@ -27,12 +29,26 @@ static const String baseUrl =
     if (response.statusCode == 200) {
       final data = jsonDecode(response.body);
 
-      // Thử lấy token từ data['token'] hoặc data['data']['token']
-      _token = data['token'] ?? (data['data'] != null ? data['data']['token'] : null);
+      _token = data['token'] ?? 
+               (data['data'] != null ? data['data']['token'] : null) ??
+               data['accessToken']; // Một số bộ API dùng accessToken
+      
+      print("🔑 LOGIN RESPONSE: $data");
 
-      if (_token == null) {
-        throw Exception('Login successful but token is missing in response');
+      // Lấy role dựa trên cấu trúc của Web FE (data.user.role)
+      final user = data['user'] ?? data['data']?['user'] ?? data;
+      _user = user;
+      
+      if (user != null) {
+        _role = user['role']?.toString() ?? user['roleName']?.toString() ?? user['roleId']?.toString();
+      } else {
+        // Fallback cho cấu trúc phẳng
+        _role = data['roleName']?.toString() ?? 
+                data['role']?.toString() ?? 
+                data['roleId']?.toString();
       }
+      
+      print("👤 DETECTED ROLE: $_role");
 
       return data;
     } else {
@@ -68,7 +84,11 @@ static const String baseUrl =
   // ================= LOGOUT =================
   static void logout() {
     _token = null;
+    _role = null;
+    _user = null;
   }
 
   static String? get token => _token;
+  static String? get role => _role;
+  static Map<String, dynamic>? get user => _user;
 }

@@ -11,6 +11,9 @@ import 'screens/hubs/hubs_screen.dart';
 import 'screens/sensors/sensors_screen.dart';
 import 'screens/alerts/alerts_screen.dart';
 import 'screens/alerts/alert_rules_screen.dart';
+import 'screens/organizations/organizations_screen.dart';
+import 'screens/users/users_screen.dart';
+import 'screens/profile/profile_screen.dart';
 
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   print("Background message: ${message.messageId}");
@@ -72,6 +75,9 @@ class _MyAppState extends State<MyApp> {
         '/sensors': (context) => const SensorsScreen(),
         '/alerts': (context) => const AlertsScreen(),
         '/alert-rules': (context) => const AlertRulesScreen(),
+        '/organizations': (context) => const OrganizationsScreen(),
+        '/users': (context) => const UsersScreen(),
+        '/profile': (context) => const ProfileScreen(),
       },
     );
   }
