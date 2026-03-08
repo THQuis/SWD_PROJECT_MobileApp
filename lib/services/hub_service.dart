@@ -12,7 +12,7 @@ class HubService {
           'Authorization': 'Bearer $token',
           'accept': '*/*',
         },
-      ).timeout(const Duration(seconds: 10));
+      ).timeout(const Duration(seconds: 30));
 
       if (response.statusCode == 200) {
         final dynamic body = jsonDecode(response.body);

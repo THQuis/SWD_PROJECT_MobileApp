@@ -10,6 +10,7 @@ import 'screens/sites/sites_screen.dart';
 import 'screens/hubs/hubs_screen.dart';
 import 'screens/sensors/sensors_screen.dart';
 import 'screens/alerts/alerts_screen.dart';
+import 'screens/alerts/alert_rules_screen.dart';
 
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   print("Background message: ${message.messageId}");
@@ -69,7 +70,8 @@ class _MyAppState extends State<MyApp> {
         '/sites': (context) => const SitesScreen(),
         '/hubs': (context) => const HubsScreen(),
         '/sensors': (context) => const SensorsScreen(),
-        '/alerts': (context) => AlertsScreen(), // ❗ bỏ const nếu lỗi
+        '/alerts': (context) => const AlertsScreen(),
+        '/alert-rules': (context) => const AlertRulesScreen(),
       },
     );
   }

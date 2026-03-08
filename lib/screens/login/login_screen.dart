@@ -34,13 +34,20 @@ class _LoginScreenState extends State<LoginScreen> {
         builder: (_) => const DashboardScreen(),
       ),
     );
-  } catch (e) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Error: $e')),
-    );
-  } finally {
-    if (mounted) setState(() => isLoading = false);
-  }
+    } catch (e) {
+      String errorMsg = e.toString();
+      if (errorMsg.contains('TimeoutException')) {
+        errorMsg = 'Server is starting up (Render cold start). Please try again in 30 seconds.';
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(errorMsg),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => isLoading = false);
+    }
 }
 
   @override

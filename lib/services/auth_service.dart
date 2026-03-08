@@ -9,32 +9,37 @@ static const String baseUrl =
   static String? _token;
 
   // ================= LOGIN =================
- static Future<Map<String, dynamic>> login({
-  required String email,
-  required String password,
-}) async {
-  final response = await http.post(
-    Uri.parse('$baseUrl/auth/login'),
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: jsonEncode({
-      'email': email,
-      'password': password,
-    }),
-  ).timeout(const Duration(seconds: 10));
+  static Future<Map<String, dynamic>> login({
+    required String email,
+    required String password,
+  }) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/auth/login'),
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: jsonEncode({
+        'email': email,
+        'password': password,
+      }),
+    ).timeout(const Duration(seconds: 30)); // Tăng lên 30s cho Render
 
-  if (response.statusCode == 200) {
-    final data = jsonDecode(response.body);
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body);
 
-    // lưu token nếu muốn dùng sau
-    _token = data['token'];
+      // Thử lấy token từ data['token'] hoặc data['data']['token']
+      _token = data['token'] ?? (data['data'] != null ? data['data']['token'] : null);
 
-    return data;
-  } else {
-    throw Exception('Login failed: ${response.statusCode} - ${response.body}');
+      if (_token == null) {
+        throw Exception('Login successful but token is missing in response');
+      }
+
+      return data;
+    } else {
+      print('Login Error Body: ${response.body}');
+      throw Exception('Login failed: ${response.statusCode}');
+    }
   }
-}
 
   // ================= REGISTER =================
   static Future<void> register({

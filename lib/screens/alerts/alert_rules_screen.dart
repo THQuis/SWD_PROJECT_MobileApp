@@ -2,31 +2,28 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../services/auth_service.dart';
 import '../../services/alert_service.dart';
-import '../../services/site_service.dart';
 import '../login/login_screen.dart';
-import 'alert_rules_screen.dart';
 import '../../widgets/app_drawer.dart';
+import 'alerts_screen.dart';
+import 'add_edit_alert_rule_dialog.dart';
 
-class AlertsScreen extends StatefulWidget {
-  const AlertsScreen({super.key});
+class AlertRulesScreen extends StatefulWidget {
+  const AlertRulesScreen({super.key});
 
   @override
-  State<AlertsScreen> createState() => _AlertsScreenState();
+  State<AlertRulesScreen> createState() => _AlertRulesScreenState();
 }
 
-class _AlertsScreenState extends State<AlertsScreen> {
+class _AlertRulesScreenState extends State<AlertRulesScreen> {
   final AlertService _alertService = AlertService();
-  final SiteService _siteService = SiteService();
 
-  List<dynamic> alerts = [];
-  List<dynamic> sites = [];
-  int? selectedSiteId;
+  List<dynamic> rules = [];
   bool isLoading = true;
   String? error;
 
   // Pagination state
   int currentPage = 1;
-  int totalAlerts = 0;
+  int totalRules = 0;
   bool hasMore = true;
   bool isLoadMore = false;
   final ScrollController _scrollController = ScrollController();
@@ -83,31 +80,12 @@ class _AlertsScreenState extends State<AlertsScreen> {
       isLoading = true;
       currentPage = 1;
       hasMore = true;
-      error = null;
+      rules = [];
     });
-    try {
-      final token = AuthService.token!;
-      // Only fetch sites if we don't have them yet to avoid dropdown flickering
-      if (sites.isEmpty) {
-        final sitesData = await _siteService.fetchSites(token);
-        if (mounted) {
-          setState(() {
-            sites = sitesData;
-          });
-        }
-      }
-
-      await _loadAlerts(refresh: true);
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        error = e.toString();
-        isLoading = false;
-      });
-    }
+    await _loadRules(refresh: true);
   }
 
-  Future<void> _loadAlerts({bool refresh = false}) async {
+  Future<void> _loadRules({bool refresh = false}) async {
     if (!mounted) return;
     if (refresh) {
       setState(() {
@@ -116,32 +94,31 @@ class _AlertsScreenState extends State<AlertsScreen> {
         error = null;
       });
     }
-    
+
     try {
       final token = AuthService.token!;
-      final result = await _alertService.fetchAlerts(
+      final result = await _alertService.fetchAlertRules(
         token,
-        siteId: selectedSiteId,
-        sensorName: _searchController.text.trim(),
+        search: _searchController.text.trim(),
         page: currentPage,
         limit: 20,
       );
 
       if (!mounted) return;
-      
-      final newAlerts = result['alerts'] as List<dynamic>;
+
+      final newRules = result['rules'] as List<dynamic>;
       final total = result['total'] ?? 0;
 
       setState(() {
         if (refresh) {
-          alerts = newAlerts;
+          rules = newRules;
         } else {
-          alerts.addAll(newAlerts);
+          rules.addAll(newRules);
         }
-        totalAlerts = total;
+        totalRules = total;
         isLoading = false;
         isLoadMore = false;
-        hasMore = alerts.length < totalAlerts;
+        hasMore = rules.length < totalRules;
       });
     } catch (e) {
       if (!mounted) return;
@@ -157,19 +134,56 @@ class _AlertsScreenState extends State<AlertsScreen> {
     if (isLoadMore || !hasMore) return;
     setState(() => isLoadMore = true);
     currentPage++;
-    await _loadAlerts();
+    await _loadRules();
   }
 
   Future<void> _onRefresh() async {
     await _loadInitialData();
   }
 
-  Color _severityColor(String? level) {
-    if (level == null) return Colors.greenAccent;
-    final lower = level.toLowerCase();
-    if (lower.contains('critical') || lower.contains('high')) return Colors.redAccent;
-    if (lower.contains('warning') || lower.contains('medium')) return Colors.orangeAccent;
-    return Colors.greenAccent;
+  Future<void> _showAddEditRuleDialog([dynamic rule]) async {
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (_) => AddEditAlertRuleDialog(rule: rule),
+    );
+
+    if (result == true) {
+      _loadInitialData();
+    }
+  }
+
+  Future<void> _deleteRule(int ruleId) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF141414),
+        title: const Text('Confirm Delete', style: TextStyle(color: Colors.white)),
+        content: const Text('Are you sure you want to delete this alert rule?', style: TextStyle(color: Colors.white70)),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('CANCEL')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true), 
+            child: const Text('DELETE', style: TextStyle(color: Colors.redAccent)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      try {
+        final token = AuthService.token!;
+        final success = await _alertService.deleteAlertRule(token, ruleId);
+        if (success) {
+          _loadInitialData();
+        } else {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to delete rule')));
+        }
+      } catch (e) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+      }
+    }
   }
 
   @override
@@ -182,7 +196,7 @@ class _AlertsScreenState extends State<AlertsScreen> {
         elevation: 0,
         iconTheme: const IconThemeData(color: Colors.white),
         title: const Text(
-          'Alerts',
+          'Alert Rules',
           style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
         ),
       ),
@@ -198,15 +212,13 @@ class _AlertsScreenState extends State<AlertsScreen> {
               _buildHeader(),
               const SizedBox(height: 16),
               _buildSearchBar(),
-              const SizedBox(height: 12),
-              _buildFilters(),
               const SizedBox(height: 16),
-              if (isLoading && alerts.isEmpty)
+              if (isLoading && rules.isEmpty)
                 const Center(child: Padding(
                   padding: EdgeInsets.all(40.0),
                   child: CircularProgressIndicator(color: Colors.blueAccent),
                 ))
-              else if (error != null && alerts.isEmpty)
+              else if (error != null && rules.isEmpty)
                 Center(child: Padding(
                   padding: const EdgeInsets.all(20.0),
                   child: Column(
@@ -219,35 +231,26 @@ class _AlertsScreenState extends State<AlertsScreen> {
                     ],
                   ),
                 ))
-              else if (alerts.isEmpty)
+              else if (rules.isEmpty)
                 const Center(child: Padding(
                   padding: EdgeInsets.all(40.0),
-                  child: Text('No alerts found', style: TextStyle(color: Colors.grey)),
+                  child: Text('No alert rules found', style: TextStyle(color: Colors.grey)),
                 ))
               else ...[
                 SingleChildScrollView(
                   scrollDirection: Axis.horizontal,
                   child: Container(
-                    width: 900,
+                    width: 790,
                     decoration: BoxDecoration(
                       color: const Color(0xFF141414).withOpacity(0.3),
-                      borderRadius: BorderRadius.circular(16),
+                      borderRadius: BorderRadius.circular(12),
                       border: Border.all(color: Colors.white.withOpacity(0.08)),
                     ),
                     child: Column(
                       children: [
                         _tableHeader(),
                         const Divider(color: Colors.white12, height: 1),
-                        ...alerts.map((a) {
-                          final severityStr = (a['severity'] ?? a['Priority'] ?? a['priority'] ?? 'Normal').toString();
-                          Color color = Colors.blueAccent;
-                          if (severityStr.toLowerCase() == 'high' || severityStr.toLowerCase() == 'critical') {
-                            color = Colors.redAccent;
-                          } else if (severityStr.toLowerCase() == 'medium' || severityStr.toLowerCase() == 'warning') {
-                            color = Colors.orangeAccent;
-                          }
-                          return _alertRow(a, color);
-                        }).toList(),
+                        ...rules.map((r) => _ruleRow(r)).toList(),
                       ],
                     ),
                   ),
@@ -257,11 +260,20 @@ class _AlertsScreenState extends State<AlertsScreen> {
                     padding: EdgeInsets.all(16.0),
                     child: CircularProgressIndicator(color: Colors.blueAccent, strokeWidth: 2),
                   )),
-                const SizedBox(height: 80),
+                if (!hasMore && rules.isNotEmpty)
+                  const Center(child: Padding(
+                    padding: EdgeInsets.all(16.0),
+                    child: Text('All rules loaded', style: TextStyle(color: Colors.white24, fontSize: 12)),
+                  )),
               ],
             ],
           ),
         ),
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: () => _showAddEditRuleDialog(),
+        backgroundColor: Colors.blueAccent,
+        child: const Icon(Icons.add, color: Colors.white),
       ),
     );
   }
@@ -270,15 +282,15 @@ class _AlertsScreenState extends State<AlertsScreen> {
     return Wrap(
       alignment: WrapAlignment.spaceBetween,
       crossAxisAlignment: WrapCrossAlignment.center,
-      spacing: 12,
-      runSpacing: 12,
+      spacing: 8,
+      runSpacing: 8,
       children: [
         Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
             const Text(
-              'Alert History',
+              'System Rules',
               style: TextStyle(
                 color: Colors.white,
                 fontSize: 24,
@@ -286,33 +298,46 @@ class _AlertsScreenState extends State<AlertsScreen> {
               ),
             ),
             const Text(
-              'System anomalies.',
+              'Configure thresholds.',
               style: TextStyle(color: Colors.white70, fontSize: 13),
             ),
-            if (totalAlerts > 0)
-              Padding(
-                padding: const EdgeInsets.only(top: 4.0),
-                child: Text(
-                  'Showing ${alerts.length} of $totalAlerts',
-                  style: const TextStyle(color: Colors.blueAccent, fontSize: 11, fontWeight: FontWeight.bold),
-                ),
-              ),
           ],
         ),
-        ElevatedButton(
-          onPressed: () {
-            Navigator.pushReplacement(
-              context,
-              MaterialPageRoute(builder: (_) => const AlertRulesScreen()),
-            );
-          },
-          style: ElevatedButton.styleFrom(
-            backgroundColor: const Color(0xFF141414),
-            foregroundColor: Colors.white,
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          ),
-          child: const Text('RULES', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ElevatedButton.icon(
+              onPressed: () => _showAddEditRuleDialog(),
+              icon: const Icon(Icons.add, size: 14),
+              label: const Text('CREATE', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.blueAccent,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                minimumSize: Size.zero,
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+            ),
+            const SizedBox(width: 8),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.pushReplacement(
+                  context,
+                  MaterialPageRoute(builder: (_) => const AlertsScreen()),
+                );
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF141414),
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                minimumSize: Size.zero,
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+              child: const Text('HISTORY', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+            ),
+          ],
         ),
       ],
     );
@@ -330,7 +355,7 @@ class _AlertsScreenState extends State<AlertsScreen> {
         style: const TextStyle(color: Colors.white, fontSize: 14),
         onChanged: _onSearchChanged,
         decoration: InputDecoration(
-          hintText: 'Search by sensor name...',
+          hintText: 'Search rules or sensors...',
           hintStyle: const TextStyle(color: Colors.white38, fontSize: 14),
           prefixIcon: const Icon(Icons.search, color: Colors.white38, size: 20),
           suffixIcon: _searchController.text.isNotEmpty 
@@ -349,70 +374,16 @@ class _AlertsScreenState extends State<AlertsScreen> {
     );
   }
 
-  Widget _buildFilters() {
-    final List<dynamic> uniqueSites = [];
-    final Set<int> seenIds = {};
-    for (var s in sites) {
-      final idValue = s['siteId'] ?? s['id'] ?? s['Id'] ?? s['ID'];
-      if (idValue == null) continue;
-      final intId = idValue is int ? idValue : int.tryParse(idValue.toString());
-      if (intId != null && !seenIds.contains(intId)) {
-        uniqueSites.add(s);
-        seenIds.add(intId);
-      }
-    }
-
-    // Double check that selectedSiteId is actually in the unique list
-    final bool siteExists = selectedSiteId == null || seenIds.contains(selectedSiteId);
-    final int? currentValue = siteExists ? selectedSiteId : null;
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14),
-      decoration: BoxDecoration(
-        color: const Color(0xFF141414),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: Colors.white10),
-      ),
-      child: DropdownButtonHideUnderline(
-        child: DropdownButton<int?>(
-          value: currentValue,
-          dropdownColor: const Color(0xFF141414),
-          hint: const Text('All Sites', style: TextStyle(color: Colors.white70, fontSize: 14)),
-          icon: const Icon(Icons.arrow_drop_down, color: Colors.blueAccent),
-          isExpanded: true,
-          items: [
-            const DropdownMenuItem<int?>(
-              value: null,
-              child: Text('All Sites', style: TextStyle(color: Colors.white, fontSize: 14)),
-            ),
-            ...uniqueSites.map((s) {
-              final id = int.tryParse((s['siteId'] ?? s['id'] ?? s['Id'] ?? s['ID']).toString());
-              return DropdownMenuItem<int?>(
-                value: id,
-                child: Text(s['name'] ?? 'Unknown', style: const TextStyle(color: Colors.white, fontSize: 14)),
-              );
-            }),
-          ],
-          onChanged: (val) {
-            setState(() {
-              selectedSiteId = val;
-            });
-            _loadInitialData();
-          },
-        ),
-      ),
-    );
-  }
-
   Widget _tableHeader() {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 24),
       child: Row(
         children: [
-          Container(width: 110, alignment: Alignment.centerLeft, child: const Text('TIME', style: _tableHeaderStyle)),
-          Container(width: 190, alignment: Alignment.centerLeft, child: const Text('SENSOR', style: _tableHeaderStyle)),
-          Container(width: 450, alignment: Alignment.centerLeft, child: const Text('MESSAGE', style: _tableHeaderStyle)),
-          Container(width: 100, alignment: Alignment.center, child: const Text('SEV', style: _tableHeaderStyle)),
+          Container(width: 200, alignment: Alignment.centerLeft, child: const Text('RULE NAME', style: _tableHeaderStyle)),
+          Container(width: 150, alignment: Alignment.centerLeft, child: const Text('CONDITION', style: _tableHeaderStyle)),
+          Container(width: 150, alignment: Alignment.centerLeft, child: const Text('THRESHOLD', style: _tableHeaderStyle)),
+          Container(width: 120, alignment: Alignment.center, child: const Text('PRIORITY', style: _tableHeaderStyle)),
+          Container(width: 120, alignment: Alignment.center, child: const Text('ACTIONS', style: _tableHeaderStyle)),
         ],
       ),
     );
@@ -425,9 +396,7 @@ class _AlertsScreenState extends State<AlertsScreen> {
     letterSpacing: 0.8,
   );
 
-  Widget _alertRow(dynamic a, Color color) {
-    // Check for both camelCase and snake_case keys for robustness
-    final timeStr = a['updatedAt'] ?? a['updated_at'] ?? a['createdAt'] ?? a['created_at'] ?? a['timestamp'] ?? a['Time'] ?? a['time'] ?? '';
+  Widget _ruleRow(dynamic r) {
     String _get(dynamic m, List<String> keys, String fallback) {
       if (m == null) return fallback;
       if (m is! Map) {
@@ -438,7 +407,7 @@ class _AlertsScreenState extends State<AlertsScreen> {
         if (m[k] != null && m[k].toString().trim().isNotEmpty) return m[k].toString();
       }
       // Check deeply nested common objects
-      final nested = ['trigger', 'rule', 'alertRule', 'sensor', 'site'];
+      final nested = ['rule', 'trigger', 'alertRule', 'sensor', 'site'];
       for (var n in nested) {
         if (m[n] != null) {
           final res = _get(m[n], keys, '');
@@ -448,19 +417,16 @@ class _AlertsScreenState extends State<AlertsScreen> {
       return fallback;
     }
 
-    final message = _get(a, ['message', 'Message', 'description', 'Description', 'note', 'Note', 'content', 'alertMessage', 'alert_message', 'msg', 'ruleName', 'rule_name', 'name', 'RuleName', 'Rule_Name', 'Title', 'title', 'Header', 'header', 'Body', 'body'], '');
-    final sensorName = _get(a, ['sensorName', 'SensorName', 'sensor_name', 'Sensor', 'sensor', 'name', 'Sensor_Name'], 'Unknown');
-    final severityStr = _get(a, ['severity', 'Priority', 'priority', 'Severity'], 'Normal');
+    final name = _get(r, ['name', 'ruleName', 'rule_name', 'RuleName'], 'Untitled');
+    final sensor = _get(r, ['sensorName', 'sensor_name', 'Sensor', 'SensorName', 'name'], 'All Sensors');
+    final condition = _get(r, ['conditionType', 'condition_type', 'Condition'], 'MinMax');
+    final min = r['minValue'] ?? r['threshold_min'] ?? r['min_value'] ?? 0;
+    final max = r['maxValue'] ?? r['threshold_max'] ?? r['max_value'] ?? 100;
+    final priority = _get(r, ['priority', 'Priority'], 'Normal');
 
-    String timeFormatted = timeStr;
-    if (timeStr.length > 16) {
-      try {
-        final dt = DateTime.parse(timeStr).toLocal();
-        timeFormatted = "${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}\n${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}";
-      } catch (_) {}
-    } else if (timeStr.isEmpty) {
-      timeFormatted = '-';
-    }
+    Color prioColor = Colors.greenAccent;
+    if (priority.toLowerCase() == 'high') prioColor = Colors.redAccent;
+    if (priority.toLowerCase() == 'medium') prioColor = Colors.orangeAccent;
 
     return Container(
       decoration: BoxDecoration(
@@ -471,39 +437,62 @@ class _AlertsScreenState extends State<AlertsScreen> {
         child: Row(
           children: [
             Container(
-              width: 110,
+              width: 200,
               alignment: Alignment.centerLeft,
-              child: Text(timeFormatted, style: const TextStyle(color: Colors.white38, fontSize: 12, height: 1.3)),
-            ),
-            Container(
-              width: 190,
-              alignment: Alignment.centerLeft,
-              child: Text(sensorName, style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold), overflow: TextOverflow.ellipsis),
-            ),
-            Container(
-              width: 450,
-              alignment: Alignment.centerLeft,
-              child: Text(
-                message.isEmpty ? '-' : message,
-                style: const TextStyle(color: Colors.white70, fontSize: 13),
-                overflow: TextOverflow.ellipsis,
-                maxLines: 2,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(name, style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold), overflow: TextOverflow.ellipsis),
+                  Text(sensor, style: const TextStyle(color: Colors.white38, fontSize: 11), overflow: TextOverflow.ellipsis),
+                ],
               ),
             ),
             Container(
-              width: 100,
+              width: 150,
+              alignment: Alignment.centerLeft,
+              child: Text(condition, style: const TextStyle(color: Colors.white70, fontSize: 13)),
+            ),
+            Container(
+              width: 150,
+              alignment: Alignment.centerLeft,
+              child: Text('$min - $max', style: const TextStyle(color: Colors.blueAccent, fontSize: 13, fontWeight: FontWeight.bold)),
+            ),
+            Container(
+              width: 120,
               alignment: Alignment.center,
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
-                  color: color.withOpacity(0.1),
+                  color: prioColor.withOpacity(0.1),
                   borderRadius: BorderRadius.circular(6),
-                  border: Border.all(color: color.withOpacity(0.3)),
+                  border: Border.all(color: prioColor.withOpacity(0.3)),
                 ),
                 child: Text(
-                  severityStr.substring(0, 1).toUpperCase(),
-                  style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: color),
+                  priority.toUpperCase(),
+                  style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: prioColor),
                 ),
+              ),
+            ),
+            Container(
+              width: 120,
+              alignment: Alignment.center,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.edit_outlined, color: Colors.blueAccent, size: 18),
+                    onPressed: () => _showAddEditRuleDialog(r),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                  ),
+                  const SizedBox(width: 16),
+                  IconButton(
+                    icon: const Icon(Icons.delete_outline_rounded, color: Colors.redAccent, size: 18),
+                    onPressed: () => _deleteRule(r['ruleId']),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                  ),
+                ],
               ),
             ),
           ],
@@ -511,10 +500,4 @@ class _AlertsScreenState extends State<AlertsScreen> {
       ),
     );
   }
-
-  BoxDecoration _cardDecoration() => BoxDecoration(
-        color: const Color(0xFF141414),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: const Color(0xFF222222)),
-      );
 }

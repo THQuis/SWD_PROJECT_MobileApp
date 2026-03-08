@@ -38,7 +38,8 @@ class AppDrawer extends StatelessWidget {
             _menuItem(context, Icons.store, 'Sites', '/sites'),
             _menuItem(context, Icons.router, 'Hubs', '/hubs'),
             _menuItem(context, Icons.sensors, 'Sensors', '/sensors'),
-            _menuItem(context, Icons.warning, 'Alerts', '/alerts'),
+            _menuItem(context, Icons.warning, 'Alert History', '/alerts'),
+            _menuItem(context, Icons.rule_folder, 'Alert Rules', '/alert-rules'),
 
             const Spacer(),
             const Divider(color: Colors.white12),
