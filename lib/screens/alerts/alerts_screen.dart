@@ -6,6 +6,7 @@ import '../../services/site_service.dart';
 import '../login/login_screen.dart';
 import 'alert_rules_screen.dart';
 import '../../widgets/app_drawer.dart';
+import '../../widgets/notification_bell.dart';
 
 class AlertsScreen extends StatefulWidget {
   const AlertsScreen({super.key});
@@ -185,6 +186,10 @@ class _AlertsScreenState extends State<AlertsScreen> {
           'Alerts',
           style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
         ),
+        actions: const [
+          NotificationBell(),
+          SizedBox(width: 8),
+        ],
       ),
       body: RefreshIndicator(
         onRefresh: _onRefresh,

@@ -4,6 +4,7 @@ import 'package:fl_chart/fl_chart.dart';
 import '../../services/dashboard_service.dart';
 import '../../services/auth_service.dart';
 import '../../widgets/app_drawer.dart';
+import '../../widgets/notification_bell.dart';
 import '../login/login_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
@@ -106,6 +107,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
         title: const Text("Dashboard",
             style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 22)),
         centerTitle: false,
+        actions: const [
+          NotificationBell(),
+          SizedBox(width: 8),
+        ],
       ),
       body: isLoading
           ? const Center(child: CircularProgressIndicator())

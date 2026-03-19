@@ -7,7 +7,9 @@ import '../../services/site_service.dart';
 import '../../widgets/app_drawer.dart';
 
 class SensorsScreen extends StatefulWidget {
-  const SensorsScreen({super.key});
+  final int? initialHubId;
+  final String? initialHubName;
+  const SensorsScreen({super.key, this.initialHubId, this.initialHubName});
 
   @override
   State<SensorsScreen> createState() => _SensorsScreenState();
@@ -31,6 +33,8 @@ class _SensorsScreenState extends State<SensorsScreen> {
   int totalPages = 1;
   int? selectedSiteId;
   int? selectedTypeId;
+  int? selectedHubId;
+  String? selectedHubName;
 
   // Stats
   int totalSensorsCount = 0;
@@ -40,6 +44,8 @@ class _SensorsScreenState extends State<SensorsScreen> {
   @override
   void initState() {
     super.initState();
+    selectedHubId = widget.initialHubId;
+    selectedHubName = widget.initialHubName;
     _initialLoad();
   }
 
@@ -113,6 +119,7 @@ class _SensorsScreenState extends State<SensorsScreen> {
       final result = await _sensorService.fetchSensors(
         token,
         siteId: selectedSiteId,
+        hubId: selectedHubId,
         typeId: selectedTypeId,
         pageNumber: currentPage,
         pageSize: pageSize,

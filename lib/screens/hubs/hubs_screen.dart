@@ -3,11 +3,15 @@ import 'package:flutter/material.dart';
 import '../../services/hub_service.dart';
 import '../../services/auth_service.dart';
 import '../../widgets/app_drawer.dart';
+import '../../widgets/notification_bell.dart';
+import '../sensors/sensors_screen.dart';
+import '../sites/sites_screen.dart';
 import 'add_hub_dialog.dart';
 import 'edit_hub_dialog.dart';
 
 class HubsScreen extends StatefulWidget {
-  const HubsScreen({super.key});
+  final String? initialSiteName;
+  const HubsScreen({super.key, this.initialSiteName});
 
   @override
   State<HubsScreen> createState() => _HubsScreenState();
@@ -25,7 +29,12 @@ class _HubsScreenState extends State<HubsScreen> {
   @override
   void initState() {
     super.initState();
-    _loadHubs();
+    _loadHubs().then((_) {
+      if (widget.initialSiteName != null) {
+        _searchController.text = widget.initialSiteName!;
+        _filterHubs(widget.initialSiteName!);
+      }
+    });
   }
 
   Future<void> _loadHubs() async {
@@ -144,19 +153,10 @@ class _HubsScreenState extends State<HubsScreen> {
     }
   }
 
-  Widget _glassContainer({required Widget child, double borderRadius = 16.0}) {
-    return Container(
-      decoration: BoxDecoration(
-        color: const Color(0xFF141414).withOpacity(0.05),
-        borderRadius: BorderRadius.circular(borderRadius),
-        border: Border.all(color: Colors.white.withOpacity(0.08)),
-      ),
-      child: child,
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
+    final title = widget.initialSiteName != null ? "Hubs in ${widget.initialSiteName}" : "Hubs Management";
+
     return Scaffold(
       backgroundColor: const Color(0xFF0D0D0D),
       drawer: const AppDrawer(),
@@ -164,10 +164,14 @@ class _HubsScreenState extends State<HubsScreen> {
         backgroundColor: Colors.transparent,
         elevation: 0,
         iconTheme: const IconThemeData(color: Colors.white),
-        title: const Text(
-          'Hubs Management',
-          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+        title: Text(
+          title,
+          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
         ),
+        actions: const [
+          NotificationBell(),
+          SizedBox(width: 8),
+        ],
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
@@ -179,11 +183,13 @@ class _HubsScreenState extends State<HubsScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    _header(),
+                    _backToSites(),
+                    const SizedBox(height: 16),
+                    _header(title),
                     const SizedBox(height: 32),
                     if (_error != null) _errorView(),
                     if (_error == null) ...[
-                      _searchBar(),
+                      _filterControls(),
                       const SizedBox(height: 24),
                       _hubsTable(),
                     ],
@@ -194,24 +200,48 @@ class _HubsScreenState extends State<HubsScreen> {
     );
   }
 
-  Widget _header() {
-    return Column(
+  Widget _backToSites() {
+    return GestureDetector(
+      onTap: () => Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const SitesScreen())),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: const [
+          Icon(Icons.arrow_back, color: Color(0xFF0EA5E9), size: 16),
+          SizedBox(width: 8),
+          Text(
+            "Back to Sites",
+            style: TextStyle(color: Color(0xFF0EA5E9), fontWeight: FontWeight.bold, fontSize: 13),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _header(String title) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          'Hubs Management',
-          style: TextStyle(
-            color: Colors.white,
-            fontSize: 28,
-            fontWeight: FontWeight.bold,
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 28,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'Configure and monitor gateway devices across all store locations.',
+                style: TextStyle(color: Colors.white54, fontSize: 13),
+              ),
+            ],
           ),
         ),
-        const SizedBox(height: 8),
-        const Text(
-          'Configure and monitor gateway devices across all store locations.',
-          style: TextStyle(color: Colors.white54, fontSize: 14),
-        ),
-        const SizedBox(height: 16),
         ElevatedButton.icon(
           onPressed: _openAddHubDialog,
           icon: const Icon(Icons.add_rounded, size: 20),
@@ -220,11 +250,45 @@ class _HubsScreenState extends State<HubsScreen> {
             backgroundColor: const Color(0xFF1A1F2C),
             foregroundColor: Colors.white,
             elevation: 0,
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
           ),
         ),
       ],
+    );
+  }
+
+  Widget _filterControls() {
+    return Wrap(
+      spacing: 12,
+      runSpacing: 12,
+      children: [
+        _searchBar(),
+        _dropdownFilter("All Status"),
+        _dropdownFilter("Default"),
+        _dropdownFilter("ASC", icon: Icons.arrow_upward_rounded),
+      ],
+    );
+  }
+
+  Widget _dropdownFilter(String text, {IconData icon = Icons.keyboard_arrow_down}) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1A1F2C).withOpacity(0.3),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: Colors.white.withOpacity(0.1)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (icon == Icons.arrow_upward_rounded) Icon(icon, color: Colors.white70, size: 16),
+          if (icon == Icons.arrow_upward_rounded) const SizedBox(width: 8),
+          Text(text, style: const TextStyle(color: Colors.white70, fontSize: 13)),
+          if (icon == Icons.keyboard_arrow_down) const SizedBox(width: 8),
+          if (icon == Icons.keyboard_arrow_down) Icon(icon, color: Colors.white38, size: 16),
+        ],
+      ),
     );
   }
 
@@ -245,22 +309,22 @@ class _HubsScreenState extends State<HubsScreen> {
 
   Widget _searchBar() {
     return Container(
-      constraints: const BoxConstraints(maxWidth: 400),
+      width: 300,
       decoration: BoxDecoration(
         color: const Color(0xFF1A1F2C).withOpacity(0.3),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.white.withOpacity(0.08)),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: Colors.white.withOpacity(0.1)),
       ),
       child: TextField(
         controller: _searchController,
         onChanged: _filterHubs,
-        style: const TextStyle(color: Colors.white),
+        style: const TextStyle(color: Colors.white, fontSize: 13),
         decoration: const InputDecoration(
-          prefixIcon: Icon(Icons.search, color: Colors.white38),
-          hintText: "Search hubs by name, site, or MAC...",
-          hintStyle: TextStyle(color: Colors.white38, fontSize: 14),
+          prefixIcon: Icon(Icons.search, color: Colors.white38, size: 18),
+          hintText: "Search by name or MAC...",
+          hintStyle: TextStyle(color: Colors.white38, fontSize: 13),
           border: InputBorder.none,
-          contentPadding: EdgeInsets.symmetric(vertical: 15),
+          contentPadding: EdgeInsets.symmetric(vertical: 14),
         ),
       ),
     );
@@ -270,7 +334,7 @@ class _HubsScreenState extends State<HubsScreen> {
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       child: Container(
-        width: 850, // Increased width to ensure no overflow
+        width: 1050, // width for all columns
         decoration: BoxDecoration(
           color: const Color(0xFF141414).withOpacity(0.3),
           borderRadius: BorderRadius.circular(16),
@@ -283,10 +347,12 @@ class _HubsScreenState extends State<HubsScreen> {
               padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
               child: Row(
                 children: [
-                  SizedBox(width: 180, child: Text('HUB NAME', style: _tableHeaderStyle)),
+                  SizedBox(width: 150, child: Text('HUB NAME', style: _tableHeaderStyle)),
                   SizedBox(width: 150, child: Text('SITE NAME', style: _tableHeaderStyle)),
-                  SizedBox(width: 200, child: Text('MAC ADDRESS', style: _tableHeaderStyle)),
+                  SizedBox(width: 180, child: Text('MAC ADDRESS', style: _tableHeaderStyle)),
+                  SizedBox(width: 150, child: Text('SENSORS', style: _tableHeaderStyle)),
                   SizedBox(width: 100, child: Text('STATUS', style: _tableHeaderStyle)),
+                  SizedBox(width: 200, child: Text('LAST HANDSHAKE', style: _tableHeaderStyle)),
                   const Text('ACTIONS', style: _tableHeaderStyle),
                 ],
               ),
@@ -311,6 +377,7 @@ class _HubsScreenState extends State<HubsScreen> {
     final site = hub['siteName'] ?? 'Unassigned';
     final mac = hub['macAddress'] ?? 'N/A';
     final bool online = hub['isOnline'] ?? false;
+    final lastHandshake = "23:27:20 17/3/2026"; // Mock or format from BE data
 
     return Container(
       decoration: BoxDecoration(
@@ -320,21 +387,114 @@ class _HubsScreenState extends State<HubsScreen> {
         padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
         child: Row(
           children: [
-            SizedBox(width: 180, child: Text(name, style: _rowTextStyle.copyWith(fontWeight: FontWeight.bold), overflow: TextOverflow.ellipsis)),
-            SizedBox(width: 150, child: Text(site, style: _rowTextStyle.copyWith(color: Colors.white70), overflow: TextOverflow.ellipsis)),
-            SizedBox(width: 200, child: Text(mac, style: _rowTextStyle.copyWith(color: Colors.white38, fontSize: 13), overflow: TextOverflow.ellipsis)),
+            // HUB NAME
             SizedBox(
-              width: 100,
+              width: 150,
               child: Text(
-                online ? 'ONLINE' : 'OFFLINE',
-                style: TextStyle(
-                  color: online ? Colors.greenAccent : Colors.redAccent,
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
-                  letterSpacing: 0.5,
+                name,
+                style: _rowTextStyle.copyWith(fontWeight: FontWeight.bold, color: Colors.white),
+              ),
+            ),
+            // SITE NAME
+            SizedBox(
+              width: 150,
+              child: Text(
+                site,
+                style: _rowTextStyle.copyWith(color: Colors.white38),
+              ),
+            ),
+            // MAC ADDRESS
+            SizedBox(
+              width: 180,
+              child: Text(
+                mac,
+                style: _rowTextStyle.copyWith(color: Colors.white38, fontSize: 13),
+              ),
+            ),
+            // SENSORS (Interactive button)
+            SizedBox(
+              width: 150,
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: InkWell(
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => SensorsScreen(
+                        initialHubId: hub['hubId'],
+                        initialHubName: name,
+                      ),
+                    ),
+                  ),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF1A1F2C).withOpacity(0.5),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: const Color(0xFF0EA5E9).withOpacity(0.2)),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: const [
+                        Text(
+                          "View Sensors",
+                          style: TextStyle(
+                            color: Color(0xFF0EA5E9),
+                            fontWeight: FontWeight.bold,
+                            fontSize: 12,
+                          ),
+                        ),
+                        SizedBox(width: 4),
+                        Icon(Icons.chevron_right_rounded, color: Color(0xFF0EA5E9), size: 14),
+                      ],
+                    ),
+                  ),
                 ),
               ),
             ),
+            // STATUS
+            SizedBox(
+              width: 100,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: online ? const Color(0xFF0F1E16) : const Color(0xFF1E0F0F),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: online ? const Color(0xFF153322) : const Color(0xFF331515)),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 6,
+                      height: 6,
+                      decoration: BoxDecoration(
+                        color: online ? const Color(0xFF10B981) : Colors.redAccent,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      online ? 'ONLINE' : 'OFFLINE',
+                      style: TextStyle(
+                        color: online ? const Color(0xFF10B981) : Colors.redAccent,
+                        fontSize: 9,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            // LAST HANDSHAKE
+            SizedBox(
+              width: 200,
+              child: Text(
+                lastHandshake,
+                style: _rowTextStyle.copyWith(color: Colors.white38, fontSize: 12),
+              ),
+            ),
+            // ACTIONS
             Row(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -343,7 +503,6 @@ class _HubsScreenState extends State<HubsScreen> {
                   onPressed: () => _openEditHubDialog(hub),
                   padding: EdgeInsets.zero,
                   constraints: const BoxConstraints(),
-                  splashRadius: 20,
                 ),
                 const SizedBox(width: 16),
                 IconButton(
@@ -351,7 +510,6 @@ class _HubsScreenState extends State<HubsScreen> {
                   onPressed: () => _deleteHub(hub),
                   padding: EdgeInsets.zero,
                   constraints: const BoxConstraints(),
-                  splashRadius: 20,
                 ),
               ],
             ),

@@ -91,4 +91,19 @@ static const String baseUrl =
   static String? get token => _token;
   static String? get role => _role;
   static Map<String, dynamic>? get user => _user;
+
+  static int? get userId {
+    if (_user == null) return null;
+    // Map various possible keys from backend response
+    final id = _user!['userId'] ?? 
+               _user!['id'] ?? 
+               _user!['Userid'] ?? 
+               _user!['UserId'] ?? 
+               _user!['user_id'] ??
+               (_user!['data'] is Map ? _user!['data']['userId'] : null);
+               
+    if (id == null) return null;
+    if (id is int) return id;
+    return int.tryParse(id.toString());
+  }
 }

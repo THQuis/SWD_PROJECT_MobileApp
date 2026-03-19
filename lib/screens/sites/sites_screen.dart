@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import '../../services/site_service.dart';
 import '../../services/auth_service.dart';
 import '../../widgets/app_drawer.dart';
+import '../../widgets/notification_bell.dart';
+import '../hubs/hubs_screen.dart';
 import 'add_site_dialog.dart';
 import 'edit_site_dialog.dart';
 
@@ -177,6 +179,10 @@ class _SitesScreenState extends State<SitesScreen> {
           'Sites Management',
           style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
         ),
+        actions: const [
+          NotificationBell(),
+          SizedBox(width: 8),
+        ],
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
@@ -284,81 +290,221 @@ class _SitesScreenState extends State<SitesScreen> {
     );
   }
 
-  // ================= SITES LIST =================
+  // ================= SITES TABLE =================
   Widget _sitesList() {
-    if (_filteredSites.isEmpty) {
-      return const Center(
-        child: Padding(
-          padding: EdgeInsets.only(top: 100),
-          child: Text("No sites found", style: TextStyle(color: Colors.white38)),
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Container(
+        width: 1000, // Explicit width for horizontal scroll
+        decoration: BoxDecoration(
+          color: const Color(0xFF141414).withOpacity(0.3),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.white.withOpacity(0.08)),
         ),
-      );
-    }
-    return Column(
-      children: _filteredSites.map((site) {
-        final id = site['siteId']?.toString() ?? 'N/A';
-        final name = site['name'] ?? 'Unknown Site';
-        final address = site['address'] ?? 'No address provided';
-        final org = site['orgName'] ?? 'Co.opmart';
-        final hubs = site['hubCount']?.toString() ?? '0';
-
-        return Container(
-          margin: const EdgeInsets.only(bottom: 16),
-          child: _glassContainer(
-            child: Padding(
-              padding: const EdgeInsets.all(20),
+        child: Column(
+          children: [
+            // Table Header
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
               child: Row(
                 children: [
-                  Expanded(
-                    flex: 1,
-                    child: Text(id,
-                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                  ),
-                  Expanded(
-                    flex: 2,
-                    child: Text(org, style: const TextStyle(color: Colors.white70, fontSize: 13)),
-                  ),
-                  Expanded(
-                    flex: 4,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(name,
-                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                        const SizedBox(height: 4),
-                        Text(address,
-                            style: TextStyle(color: Colors.white.withOpacity(0.4), fontSize: 11)),
-                      ],
-                    ),
-                  ),
-                  Expanded(
-                    flex: 1,
-                    child: Center(
-                      child: Text(hubs,
-                          style: const TextStyle(
-                              color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
-                    ),
-                  ),
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      IconButton(
-                        icon: Icon(Icons.edit_outlined, color: Colors.white.withOpacity(0.3), size: 20),
-                        onPressed: () => _openEditSiteDialog(site),
-                      ),
-                      IconButton(
-                        icon: Icon(Icons.delete_outline_rounded, color: Colors.white.withOpacity(0.3), size: 20),
-                        onPressed: () => _deleteSite(site),
-                      ),
-                    ],
-                  ),
+                  SizedBox(width: 150, child: Text('ORGANIZATION', style: _tableHeaderStyle)),
+                  SizedBox(width: 200, child: Text('SITE NAME', style: _tableHeaderStyle)),
+                  SizedBox(width: 120, child: Text('STATUS', style: _tableHeaderStyle)),
+                  SizedBox(width: 250, child: Text('ADDRESS', style: _tableHeaderStyle)),
+                  SizedBox(width: 100, child: Text('HUBS', style: _tableHeaderStyle)),
+                  const Text('ACTIONS', style: _tableHeaderStyle),
                 ],
               ),
             ),
-          ),
-        );
-      }).toList(),
+            const Divider(color: Colors.white12, height: 1),
+            // Table Rows
+            if (_filteredSites.isEmpty)
+              const Padding(
+                padding: EdgeInsets.all(48.0),
+                child: Text("No sites found", style: TextStyle(color: Colors.white38)),
+              )
+            else
+              ..._filteredSites.map((site) => _siteRow(site)).toList(),
+          ],
+        ),
+      ),
     );
   }
+
+  Widget _siteRow(dynamic site) {
+    final name = site['name'] ?? 'Unknown Site';
+    final address = site['address'] ?? 'No address provided';
+    final org = site['orgName'] ?? 'Co.opmart';
+    final hubsCount = site['hubCount']?.toString() ?? '0';
+    final bool isActive = true; // Assuming active from BE or mocking for UI
+
+    return Container(
+      decoration: BoxDecoration(
+        border: Border(bottom: BorderSide(color: Colors.white.withOpacity(0.05))),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+        child: Row(
+          children: [
+            // ORGANIZATION
+            SizedBox(
+              width: 150,
+              child: Text(org, style: _rowTextStyle.copyWith(color: Colors.white70)),
+            ),
+            // SITE NAME (Interactive)
+            SizedBox(
+              width: 200,
+              child: GestureDetector(
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => HubsScreen(initialSiteName: name),
+                  ),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      name,
+                      style: _rowTextStyle.copyWith(
+                        fontWeight: FontWeight.bold,
+                        color: const Color(0xFF0EA5E9),
+                        decoration: TextDecoration.underline,
+                        decorationColor: const Color(0xFF0EA5E9).withOpacity(0.5),
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        Icon(Icons.location_on_outlined, color: Colors.white.withOpacity(0.3), size: 12),
+                        const SizedBox(width: 4),
+                        Text(
+                          "21.0138, 105.5250", // Mock coordinates as in image
+                          style: TextStyle(color: Colors.white.withOpacity(0.3), fontSize: 10),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            // STATUS
+            SizedBox(
+              width: 120,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF0F1E16),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: const Color(0xFF153322)),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 6,
+                      height: 6,
+                      decoration: const BoxDecoration(
+                        color: Color(0xFF10B981),
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    const Text(
+                      'ACTIVE',
+                      style: TextStyle(
+                        color: Color(0xFF10B981),
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            // ADDRESS
+            SizedBox(
+              width: 250,
+              child: Text(
+                address,
+                style: _rowTextStyle.copyWith(color: Colors.white38, fontSize: 13),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            // HUBS (Interactive button)
+            SizedBox(
+              width: 100,
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: InkWell(
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => HubsScreen(initialSiteName: name),
+                    ),
+                  ),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF1A1F2C).withOpacity(0.5),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: const Color(0xFF0EA5E9).withOpacity(0.3)),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          hubsCount,
+                          style: const TextStyle(
+                            color: Color(0xFF0EA5E9),
+                            fontWeight: FontWeight.bold,
+                            fontSize: 14,
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        Icon(Icons.chevron_right_rounded, color: Colors.white.withOpacity(0.5), size: 16),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            // ACTIONS
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                IconButton(
+                  icon: Icon(Icons.edit_outlined, color: Colors.white.withOpacity(0.3), size: 18),
+                  onPressed: () => _openEditSiteDialog(site),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                ),
+                const SizedBox(width: 16),
+                IconButton(
+                  icon: Icon(Icons.delete_outline_rounded, color: Colors.white.withOpacity(0.3), size: 18),
+                  onPressed: () => _deleteSite(site),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  static const _tableHeaderStyle = TextStyle(
+    color: Colors.white54,
+    fontSize: 11,
+    fontWeight: FontWeight.bold,
+    letterSpacing: 0.8,
+  );
+
+  static const _rowTextStyle = TextStyle(
+    color: Colors.white,
+    fontSize: 14,
+  );
 
 }
