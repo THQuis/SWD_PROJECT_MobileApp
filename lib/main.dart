@@ -9,8 +9,7 @@ import 'screens/dashboard/dashboard_screen.dart';
 import 'screens/sites/sites_screen.dart';
 import 'screens/hubs/hubs_screen.dart';
 import 'screens/sensors/sensors_screen.dart';
-import 'screens/alerts/alerts_screen.dart';
-import 'screens/alerts/alert_rules_screen.dart';
+import 'screens/alerts/alert_management_screen.dart';
 import 'screens/organizations/organizations_screen.dart';
 import 'screens/users/users_screen.dart';
 import 'screens/profile/profile_screen.dart';
@@ -73,8 +72,8 @@ class _MyAppState extends State<MyApp> {
         '/sites': (context) => const SitesScreen(),
         '/hubs': (context) => const HubsScreen(),
         '/sensors': (context) => const SensorsScreen(),
-        '/alerts': (context) => const AlertsScreen(),
-        '/alert-rules': (context) => const AlertRulesScreen(),
+        '/alerts': (context) => const AlertManagementScreen(initialTabIndex: 0),
+        '/alert-rules': (context) => const AlertManagementScreen(initialTabIndex: 1),
         '/organizations': (context) => const OrganizationsScreen(),
         '/users': (context) => const UsersScreen(),
         '/profile': (context) => const ProfileScreen(),

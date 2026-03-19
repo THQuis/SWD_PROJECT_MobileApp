@@ -3,6 +3,7 @@ import 'dart:ui';
 import 'package:fl_chart/fl_chart.dart';
 import '../../services/dashboard_service.dart';
 import '../../services/auth_service.dart';
+import '../../services/hub_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/notification_bell.dart';
 import '../login/login_screen.dart';
@@ -16,6 +17,7 @@ class DashboardScreen extends StatefulWidget {
 
 class _DashboardScreenState extends State<DashboardScreen> {
   final DashboardService _service = DashboardService();
+  final HubService _hubService = HubService();
 
   Map<String, dynamic>? stats;
   Map<String, dynamic>? environment;
@@ -49,7 +51,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
       final statsData = await _service.getStats(token);
       final alertData = await _service.getAlerts(token);
-      final envData = await _service.getCurrentEnvironment(token, 1);
+
+      // Fetch hubs to get a valid hubId
+      final hubs = await _hubService.fetchHubs(token);
+
+      Map<String, dynamic>? envData;
+      if (hubs.isNotEmpty) {
+        // Use the first hub's ID (check for different possible key names)
+        final firstHub = hubs[0];
+        final hubId = firstHub['hubId'] ?? firstHub['id'] ?? firstHub['Id'] ?? firstHub['ID'] ?? firstHub['hub_id'];
+        if (hubId != null) {
+          envData = await _service.getCurrentEnvironment(token, hubId is int ? hubId : int.parse(hubId.toString()));
+        }
+      }
 
       setState(() {
         stats = statsData;
@@ -66,23 +80,53 @@ class _DashboardScreenState extends State<DashboardScreen> {
   // ================= ENV PARSE =================
 
   double _getEnvValue(String type) {
-    final sensors = environment?["sensors"] ?? [];
+    if (environment == null) return 0;
+    
+    // Handle both { "sensors": [...] } and direct list [...]
+    final List<dynamic> sensors = (environment is List) 
+        ? environment as List 
+        : (environment?["sensors"] is List ? environment!["sensors"] as List : []);
 
     for (var s in sensors) {
-      if (s["typeName"] == type &&
+      final String? typeName = (s["typeName"] ?? s["type_name"] ?? s["type"] ?? s["sensorType"])?.toString().toLowerCase();
+      final String typeLower = type.toLowerCase();
+      
+      // Check for both English and common Vietnamese type names
+      bool match = false;
+      if (typeName == typeLower) match = true;
+      else if (typeLower == "temperature" && (typeName == "nhiệt độ" || typeName == "nhiet do")) match = true;
+      else if (typeLower == "humidity" && (typeName == "độ ẩm" || typeName == "do am")) match = true;
+      else if (typeLower == "pressure" && (typeName == "áp suất" || typeName == "ap suat")) match = true;
+
+      if (match &&
           s["readings"] != null &&
-          s["readings"].isNotEmpty) {
-        return (s["readings"][0]["value"] ?? 0).toDouble();
+          (s["readings"] as List).isNotEmpty) {
+        final readings = s["readings"] as List;
+        return (readings[0]["value"] ?? readings[0]["Value"] ?? 0).toDouble();
       }
     }
     return 0;
   }
 
   String _getEnvName(String type) {
-    final sensors = environment?["sensors"] ?? [];
+    if (environment == null) return '';
+    
+    final List<dynamic> sensors = (environment is List) 
+        ? environment as List 
+        : (environment?["sensors"] is List ? environment!["sensors"] as List : []);
+
     for (var s in sensors) {
-      if (s["typeName"] == type) {
-        return s["name"] ?? '';
+      final String? typeName = (s["typeName"] ?? s["type_name"] ?? s["type"] ?? s["sensorType"])?.toString().toLowerCase();
+      final String typeLower = type.toLowerCase();
+      
+      bool match = false;
+      if (typeName == typeLower) match = true;
+      else if (typeLower == "temperature" && (typeName == "nhiệt độ" || typeName == "nhiet do")) match = true;
+      else if (typeLower == "humidity" && (typeName == "độ ẩm" || typeName == "do am")) match = true;
+      else if (typeLower == "pressure" && (typeName == "áp suất" || typeName == "ap suat")) match = true;
+
+      if (match) {
+        return s["name"] ?? s["sensorName"] ?? '';
       }
     }
     return '';

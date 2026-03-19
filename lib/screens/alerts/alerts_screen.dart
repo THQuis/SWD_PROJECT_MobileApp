@@ -28,9 +28,8 @@ class _AlertsScreenState extends State<AlertsScreen> {
   // Pagination state
   int currentPage = 1;
   int totalAlerts = 0;
-  bool hasMore = true;
-  bool isLoadMore = false;
-  final ScrollController _scrollController = ScrollController();
+  bool isLoadingMore = false;
+  final int limit = 10;
 
   // Search state
   final TextEditingController _searchController = TextEditingController();
@@ -39,13 +38,11 @@ class _AlertsScreenState extends State<AlertsScreen> {
   @override
   void initState() {
     super.initState();
-    _scrollController.addListener(_scrollListener);
     _checkAuthAndLoad();
   }
 
   @override
   void dispose() {
-    _scrollController.dispose();
     _searchController.dispose();
     _debounce?.cancel();
     super.dispose();
@@ -56,14 +53,6 @@ class _AlertsScreenState extends State<AlertsScreen> {
     _debounce = Timer(const Duration(milliseconds: 500), () {
       _loadInitialData();
     });
-  }
-
-  void _scrollListener() {
-    if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 200) {
-      if (!isLoadMore && hasMore && !isLoading && error == null) {
-        _loadMore();
-      }
-    }
   }
 
   Future<void> _checkAuthAndLoad() async {
@@ -83,7 +72,6 @@ class _AlertsScreenState extends State<AlertsScreen> {
     setState(() {
       isLoading = true;
       currentPage = 1;
-      hasMore = true;
       error = null;
     });
     try {
@@ -116,6 +104,8 @@ class _AlertsScreenState extends State<AlertsScreen> {
         currentPage = 1;
         error = null;
       });
+    } else {
+      setState(() => isLoadingMore = true);
     }
     
     try {
@@ -125,7 +115,7 @@ class _AlertsScreenState extends State<AlertsScreen> {
         siteId: selectedSiteId,
         sensorName: _searchController.text.trim(),
         page: currentPage,
-        limit: 20,
+        limit: limit,
       );
 
       if (!mounted) return;
@@ -134,31 +124,33 @@ class _AlertsScreenState extends State<AlertsScreen> {
       final total = result['total'] ?? 0;
 
       setState(() {
-        if (refresh) {
-          alerts = newAlerts;
-        } else {
-          alerts.addAll(newAlerts);
-        }
+        alerts = newAlerts;
         totalAlerts = total;
         isLoading = false;
-        isLoadMore = false;
-        hasMore = alerts.length < totalAlerts;
+        isLoadingMore = false;
       });
     } catch (e) {
       if (!mounted) return;
       setState(() {
         error = e.toString();
         isLoading = false;
-        isLoadMore = false;
+        isLoadingMore = false;
       });
     }
   }
 
-  Future<void> _loadMore() async {
-    if (isLoadMore || !hasMore) return;
-    setState(() => isLoadMore = true);
-    currentPage++;
-    await _loadAlerts();
+  Future<void> _nextPage() async {
+    if (currentPage * limit < totalAlerts) {
+      currentPage++;
+      await _loadAlerts();
+    }
+  }
+
+  Future<void> _prevPage() async {
+    if (currentPage > 1) {
+      currentPage--;
+      await _loadAlerts();
+    }
   }
 
   Future<void> _onRefresh() async {
@@ -175,99 +167,127 @@ class _AlertsScreenState extends State<AlertsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFF0A0A0A),
-      drawer: const AppDrawer(),
-      appBar: AppBar(
-        backgroundColor: const Color(0xFF0E0E0E),
-        elevation: 0,
-        iconTheme: const IconThemeData(color: Colors.white),
-        title: const Text(
-          'Alerts',
-          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-        ),
-        actions: const [
-          NotificationBell(),
-          SizedBox(width: 8),
+    return SingleChildScrollView(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildHeader(),
+          const SizedBox(height: 16),
+          _buildSearchBar(),
+          const SizedBox(height: 12),
+          _buildFilters(),
+          const SizedBox(height: 16),
+          if (isLoading)
+            const Center(
+                child: Padding(
+              padding: EdgeInsets.all(40.0),
+              child: CircularProgressIndicator(color: Colors.blueAccent),
+            ))
+          else if (error != null && alerts.isEmpty)
+            Center(
+                child: Padding(
+              padding: const EdgeInsets.all(20.0),
+              child: Column(
+                children: [
+                  Text('Error: $error',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(color: Colors.redAccent)),
+                  const SizedBox(height: 10),
+                  ElevatedButton(
+                      onPressed: _onRefresh, child: const Text('Retry'))
+                ],
+              ),
+            ))
+          else if (alerts.isEmpty)
+            const Center(
+                child: Padding(
+              padding: EdgeInsets.all(40.0),
+              child:
+                  Text('No alerts found', style: TextStyle(color: Colors.grey)),
+            ))
+          else ...[
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Container(
+                width: 900,
+                decoration: BoxDecoration(
+                  color: const Color(0xFF141414).withOpacity(0.3),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: Colors.white.withOpacity(0.08)),
+                ),
+                child: Column(
+                  children: [
+                    _tableHeader(),
+                    const Divider(color: Colors.white12, height: 1),
+                    if (isLoadingMore)
+                      const LinearProgressIndicator(
+                          backgroundColor: Colors.transparent, minHeight: 1)
+                    else
+                      const SizedBox(height: 1),
+                    ...alerts.map((a) {
+                      final severityStr = (a['severity'] ??
+                              a['Priority'] ??
+                              a['priority'] ??
+                              'Normal')
+                          .toString();
+                      Color color = Colors.blueAccent;
+                      if (severityStr.toLowerCase() == 'high' ||
+                          severityStr.toLowerCase() == 'critical') {
+                        color = Colors.redAccent;
+                      } else if (severityStr.toLowerCase() == 'medium' ||
+                          severityStr.toLowerCase() == 'warning') {
+                        color = Colors.orangeAccent;
+                      }
+                      return _alertRow(a, color);
+                    }).toList(),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            _buildPagination(),
+            const SizedBox(height: 40),
+          ],
         ],
       ),
-      body: RefreshIndicator(
-        onRefresh: _onRefresh,
-        child: SingleChildScrollView(
-          controller: _scrollController,
-          physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _buildHeader(),
-              const SizedBox(height: 16),
-              _buildSearchBar(),
-              const SizedBox(height: 12),
-              _buildFilters(),
-              const SizedBox(height: 16),
-              if (isLoading && alerts.isEmpty)
-                const Center(child: Padding(
-                  padding: EdgeInsets.all(40.0),
-                  child: CircularProgressIndicator(color: Colors.blueAccent),
-                ))
-              else if (error != null && alerts.isEmpty)
-                Center(child: Padding(
-                  padding: const EdgeInsets.all(20.0),
-                  child: Column(
-                    children: [
-                      Text('Error: $error', 
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(color: Colors.redAccent)),
-                      const SizedBox(height: 10),
-                      ElevatedButton(onPressed: _onRefresh, child: const Text('Retry'))
-                    ],
-                  ),
-                ))
-              else if (alerts.isEmpty)
-                const Center(child: Padding(
-                  padding: EdgeInsets.all(40.0),
-                  child: Text('No alerts found', style: TextStyle(color: Colors.grey)),
-                ))
-              else ...[
-                SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: Container(
-                    width: 900,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF141414).withOpacity(0.3),
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: Colors.white.withOpacity(0.08)),
-                    ),
-                    child: Column(
-                      children: [
-                        _tableHeader(),
-                        const Divider(color: Colors.white12, height: 1),
-                        ...alerts.map((a) {
-                          final severityStr = (a['severity'] ?? a['Priority'] ?? a['priority'] ?? 'Normal').toString();
-                          Color color = Colors.blueAccent;
-                          if (severityStr.toLowerCase() == 'high' || severityStr.toLowerCase() == 'critical') {
-                            color = Colors.redAccent;
-                          } else if (severityStr.toLowerCase() == 'medium' || severityStr.toLowerCase() == 'warning') {
-                            color = Colors.orangeAccent;
-                          }
-                          return _alertRow(a, color);
-                        }).toList(),
-                      ],
-                    ),
-                  ),
-                ),
-                if (isLoadMore)
-                  const Center(child: Padding(
-                    padding: EdgeInsets.all(16.0),
-                    child: CircularProgressIndicator(color: Colors.blueAccent, strokeWidth: 2),
-                  )),
-                const SizedBox(height: 80),
-              ],
-            ],
+    );
+  }
+
+  Widget _buildPagination() {
+    final int totalPages = (totalAlerts / limit).ceil();
+    if (totalPages <= 1) return const SizedBox.shrink();
+
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        IconButton(
+          onPressed: currentPage > 1 ? _prevPage : null,
+          icon: const Icon(Icons.chevron_left),
+          color: Colors.blueAccent,
+          disabledColor: Colors.white24,
+        ),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          decoration: BoxDecoration(
+            color: Colors.white.withOpacity(0.05),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Text(
+            'Page $currentPage of $totalPages',
+            style: const TextStyle(
+                color: Colors.white70,
+                fontSize: 12,
+                fontWeight: FontWeight.bold),
           ),
         ),
-      ),
+        IconButton(
+          onPressed: currentPage < totalPages ? _nextPage : null,
+          icon: const Icon(Icons.chevron_right),
+          color: Colors.blueAccent,
+          disabledColor: Colors.white24,
+        ),
+      ],
     );
   }
 
@@ -304,21 +324,7 @@ class _AlertsScreenState extends State<AlertsScreen> {
               ),
           ],
         ),
-        ElevatedButton(
-          onPressed: () {
-            Navigator.pushReplacement(
-              context,
-              MaterialPageRoute(builder: (_) => const AlertRulesScreen()),
-            );
-          },
-          style: ElevatedButton.styleFrom(
-            backgroundColor: const Color(0xFF141414),
-            foregroundColor: Colors.white,
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          ),
-          child: const Text('RULES', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
-        ),
+        // ElevatedButton removed as switching is now handled by the parent TabBar/Management screen.
       ],
     );
   }
@@ -453,9 +459,22 @@ class _AlertsScreenState extends State<AlertsScreen> {
       return fallback;
     }
 
-    final message = _get(a, ['message', 'Message', 'description', 'Description', 'note', 'Note', 'content', 'alertMessage', 'alert_message', 'msg', 'ruleName', 'rule_name', 'name', 'RuleName', 'Rule_Name', 'Title', 'title', 'Header', 'header', 'Body', 'body'], '');
-    final sensorName = _get(a, ['sensorName', 'SensorName', 'sensor_name', 'Sensor', 'sensor', 'name', 'Sensor_Name'], 'Unknown');
-    final severityStr = _get(a, ['severity', 'Priority', 'priority', 'Severity'], 'Normal');
+    final message = _get(a, [
+      'message', 'Message', 'description', 'Description', 'note', 'Note', 
+      'content', 'alertMessage', 'alert_message', 'msg', 
+      'ruleName', 'rule_name', 'name', 'RuleName', 'Rule_Name',
+      'Title', 'title', 'Header', 'header', 'Body', 'body'
+    ], '');
+    
+    final sensorName = _get(a, [
+      'sensorName', 'SensorName', 'sensor_name', 'SensorName',
+      'Sensor', 'sensor', 'name', 'Sensor_Name', 'sensor_type', 'sensorType',
+      'hubName', 'HubName', 'hub_name'
+    ], 'Unknown');
+    
+    final severityStr = _get(a, [
+      'severity', 'Priority', 'priority', 'Severity', 'level', 'Level'
+    ], 'Normal');
 
     String timeFormatted = timeStr;
     if (timeStr.length > 16) {

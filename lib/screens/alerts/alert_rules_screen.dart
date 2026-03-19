@@ -11,10 +11,10 @@ class AlertRulesScreen extends StatefulWidget {
   const AlertRulesScreen({super.key});
 
   @override
-  State<AlertRulesScreen> createState() => _AlertRulesScreenState();
+  State<AlertRulesScreen> createState() => AlertRulesScreenState();
 }
 
-class _AlertRulesScreenState extends State<AlertRulesScreen> {
+class AlertRulesScreenState extends State<AlertRulesScreen> {
   final AlertService _alertService = AlertService();
 
   List<dynamic> rules = [];
@@ -24,9 +24,8 @@ class _AlertRulesScreenState extends State<AlertRulesScreen> {
   // Pagination state
   int currentPage = 1;
   int totalRules = 0;
-  bool hasMore = true;
-  bool isLoadMore = false;
-  final ScrollController _scrollController = ScrollController();
+  bool isLoadingMore = false;
+  final int limit = 10;
 
   // Search state
   final TextEditingController _searchController = TextEditingController();
@@ -35,13 +34,11 @@ class _AlertRulesScreenState extends State<AlertRulesScreen> {
   @override
   void initState() {
     super.initState();
-    _scrollController.addListener(_scrollListener);
     _checkAuthAndLoad();
   }
 
   @override
   void dispose() {
-    _scrollController.dispose();
     _searchController.dispose();
     _debounce?.cancel();
     super.dispose();
@@ -50,16 +47,8 @@ class _AlertRulesScreenState extends State<AlertRulesScreen> {
   void _onSearchChanged(String query) {
     if (_debounce?.isActive ?? false) _debounce?.cancel();
     _debounce = Timer(const Duration(milliseconds: 500), () {
-      _loadInitialData();
+      loadInitialData();
     });
-  }
-
-  void _scrollListener() {
-    if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 200) {
-      if (!isLoadMore && hasMore && !isLoading && error == null) {
-        _loadMore();
-      }
-    }
   }
 
   Future<void> _checkAuthAndLoad() async {
@@ -71,15 +60,14 @@ class _AlertRulesScreenState extends State<AlertRulesScreen> {
       );
       return;
     }
-    await _loadInitialData();
+    await loadInitialData();
   }
 
-  Future<void> _loadInitialData() async {
+  Future<void> loadInitialData() async {
     if (!mounted) return;
     setState(() {
       isLoading = true;
       currentPage = 1;
-      hasMore = true;
       rules = [];
     });
     await _loadRules(refresh: true);
@@ -93,6 +81,8 @@ class _AlertRulesScreenState extends State<AlertRulesScreen> {
         currentPage = 1;
         error = null;
       });
+    } else {
+      setState(() => isLoadingMore = true);
     }
 
     try {
@@ -101,7 +91,7 @@ class _AlertRulesScreenState extends State<AlertRulesScreen> {
         token,
         search: _searchController.text.trim(),
         page: currentPage,
-        limit: 20,
+        limit: limit,
       );
 
       if (!mounted) return;
@@ -110,35 +100,38 @@ class _AlertRulesScreenState extends State<AlertRulesScreen> {
       final total = result['total'] ?? 0;
 
       setState(() {
-        if (refresh) {
-          rules = newRules;
-        } else {
-          rules.addAll(newRules);
-        }
+        rules = newRules;
         totalRules = total;
         isLoading = false;
-        isLoadMore = false;
-        hasMore = rules.length < totalRules;
+        isLoadingMore = false;
       });
     } catch (e) {
       if (!mounted) return;
       setState(() {
         error = e.toString();
         isLoading = false;
-        isLoadMore = false;
+        isLoadingMore = false;
       });
     }
   }
 
-  Future<void> _loadMore() async {
-    if (isLoadMore || !hasMore) return;
-    setState(() => isLoadMore = true);
-    currentPage++;
-    await _loadRules();
+  Future<void> _nextPage() async {
+    final int totalPages = (totalRules / limit).ceil();
+    if (currentPage < totalPages) {
+      currentPage++;
+      await _loadRules();
+    }
+  }
+
+  Future<void> _prevPage() async {
+    if (currentPage > 1) {
+      currentPage--;
+      await _loadRules();
+    }
   }
 
   Future<void> _onRefresh() async {
-    await _loadInitialData();
+    await loadInitialData();
   }
 
   Future<void> _showAddEditRuleDialog([dynamic rule]) async {
@@ -148,7 +141,7 @@ class _AlertRulesScreenState extends State<AlertRulesScreen> {
     );
 
     if (result == true) {
-      _loadInitialData();
+      loadInitialData();
     }
   }
 
@@ -174,7 +167,7 @@ class _AlertRulesScreenState extends State<AlertRulesScreen> {
         final token = AuthService.token!;
         final success = await _alertService.deleteAlertRule(token, ruleId);
         if (success) {
-          _loadInitialData();
+          loadInitialData();
         } else {
           if (!mounted) return;
           ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to delete rule')));
@@ -188,23 +181,11 @@ class _AlertRulesScreenState extends State<AlertRulesScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFF0A0A0A),
-      drawer: const AppDrawer(),
-      appBar: AppBar(
-        backgroundColor: const Color(0xFF0E0E0E),
-        elevation: 0,
-        iconTheme: const IconThemeData(color: Colors.white),
-        title: const Text(
-          'Alert Rules',
-          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-        ),
-      ),
-      body: RefreshIndicator(
-        onRefresh: _onRefresh,
-        child: SingleChildScrollView(
-          controller: _scrollController,
-          physics: const AlwaysScrollableScrollPhysics(),
+    return RefreshIndicator(
+      onRefresh: _onRefresh,
+      child: SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -250,31 +231,61 @@ class _AlertRulesScreenState extends State<AlertRulesScreen> {
                       children: [
                         _tableHeader(),
                         const Divider(color: Colors.white12, height: 1),
+                        if (isLoadingMore)
+                          const LinearProgressIndicator(
+                              backgroundColor: Colors.transparent, minHeight: 1)
+                        else
+                          const SizedBox(height: 1),
                         ...rules.map((r) => _ruleRow(r)).toList(),
                       ],
                     ),
                   ),
                 ),
-                if (isLoadMore)
-                  const Center(child: Padding(
-                    padding: EdgeInsets.all(16.0),
-                    child: CircularProgressIndicator(color: Colors.blueAccent, strokeWidth: 2),
-                  )),
-                if (!hasMore && rules.isNotEmpty)
-                  const Center(child: Padding(
-                    padding: EdgeInsets.all(16.0),
-                    child: Text('All rules loaded', style: TextStyle(color: Colors.white24, fontSize: 12)),
-                  )),
+                const SizedBox(height: 16),
+                _buildPagination(),
+                const SizedBox(height: 40),
               ],
             ],
           ),
         ),
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () => _showAddEditRuleDialog(),
-        backgroundColor: Colors.blueAccent,
-        child: const Icon(Icons.add, color: Colors.white),
-      ),
+    );
+  }
+
+  Widget _buildPagination() {
+    final int totalPages = (totalRules / limit).ceil();
+    if (totalPages <= 1) return const SizedBox.shrink();
+
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        IconButton(
+          onPressed: currentPage > 1 ? _prevPage : null,
+          icon: const Icon(Icons.chevron_left),
+          color: Colors.blueAccent,
+          disabledColor: Colors.white24,
+        ),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          decoration: BoxDecoration(
+            color: Colors.white.withOpacity(0.05),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Text(
+            'Page $currentPage of $totalPages',
+            style: const TextStyle(
+                color: Colors.white70,
+                fontSize: 12,
+                fontWeight: FontWeight.bold),
+          ),
+        ),
+        IconButton(
+          onPressed: currentPage < totalPages ? _nextPage : null,
+          icon: const Icon(Icons.chevron_right),
+          color: Colors.blueAccent,
+          disabledColor: Colors.white24,
+        ),
+      ],
     );
   }
 
@@ -320,23 +331,6 @@ class _AlertRulesScreenState extends State<AlertRulesScreen> {
               ),
             ),
             const SizedBox(width: 8),
-            ElevatedButton(
-              onPressed: () {
-                Navigator.pushReplacement(
-                  context,
-                  MaterialPageRoute(builder: (_) => const AlertsScreen()),
-                );
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF141414),
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                minimumSize: Size.zero,
-                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              ),
-              child: const Text('HISTORY', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
-            ),
           ],
         ),
       ],
@@ -363,7 +357,7 @@ class _AlertRulesScreenState extends State<AlertRulesScreen> {
                 icon: const Icon(Icons.clear, color: Colors.white38, size: 18),
                 onPressed: () {
                   _searchController.clear();
-                  _loadInitialData();
+                  loadInitialData();
                 },
               )
             : null,
