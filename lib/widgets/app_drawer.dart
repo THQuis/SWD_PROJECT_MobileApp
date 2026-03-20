@@ -12,14 +12,12 @@ class AppDrawer extends StatelessWidget {
       child: SafeArea(
         child: Column(
           children: [
-
             // ===== HEADER =====
             Padding(
               padding: const EdgeInsets.all(20),
               child: Row(
                 children: const [
-                  Icon(Icons.dashboard,
-                      color: Colors.blueAccent, size: 32),
+                  Icon(Icons.dashboard, color: Colors.blueAccent, size: 32),
                   SizedBox(width: 12),
                   Text(
                     'SMART STORE\nIoT Monitoring',
@@ -35,22 +33,23 @@ class AppDrawer extends StatelessWidget {
             const Divider(color: Colors.white12),
 
             // ===== MENU =====
-            _menuItem(context, Icons.person_rounded, 'My Profile', '/profile'),
             _menuItem(context, Icons.dashboard, 'Dashboard', '/dashboard'),
             _menuItem(context, Icons.store, 'Sites', '/sites'),
-            _menuItem(context, Icons.router, 'Hubs', '/hubs'),
-            _menuItem(context, Icons.sensors, 'Sensors', '/sensors'),
-            _menuItem(context, Icons.warning, 'Alert History', '/alerts'),
-            _menuItem(context, Icons.rule_folder, 'Alert Rules', '/alert-rules'),
-            
-            if (AuthService.role == '1' || AuthService.role?.toUpperCase() == 'ADMIN')
-              _menuItem(context, Icons.business_rounded, 'Organizations', '/organizations'),
-            
-            if (AuthService.role == '1' || AuthService.role?.toUpperCase() == 'ADMIN')
+            _menuItem(context, Icons.warning, 'Alerts', '/alerts'),
+
+            if (AuthService.role == '1' ||
+                AuthService.role?.toUpperCase() == 'ADMIN')
+              _menuItem(context, Icons.business_rounded, 'Organizations',
+                  '/organizations'),
+
+            if (AuthService.role == '1' ||
+                AuthService.role?.toUpperCase() == 'ADMIN')
               _menuItem(context, Icons.people_alt_rounded, 'Users', '/users'),
 
             const Spacer(),
             const Divider(color: Colors.white12),
+
+            _menuItem(context, Icons.person_rounded, 'My Profile', '/profile'),
 
             // ===== LOGOUT =====
             ListTile(
