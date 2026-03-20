@@ -3,6 +3,14 @@ import 'package:fl_chart/fl_chart.dart';
 import '../services/dashboard_service.dart';
 import '../services/auth_service.dart';
 import '../services/hub_service.dart';
+import '../services/realtime_alert_service.dart';
+
+class _ReadingPoint {
+  final DateTime time;
+  final double value;
+
+  _ReadingPoint({required this.time, required this.value});
+}
 
 class HistoryChartWidget extends StatefulWidget {
   final int? fixedHubId;
@@ -23,6 +31,7 @@ class HistoryChartWidget extends StatefulWidget {
 class _HistoryChartWidgetState extends State<HistoryChartWidget> {
   final DashboardService _service = DashboardService();
   final HubService _hubService = HubService();
+  final RealtimeAlertService _realtimeService = RealtimeAlertService();
 
   List<dynamic> hubs = [];
   int? selectedHubId;
@@ -32,6 +41,8 @@ class _HistoryChartWidgetState extends State<HistoryChartWidget> {
   DateTime fromDate = DateTime.now().subtract(const Duration(days: 1));
   DateTime toDate = DateTime.now();
   List<FlSpot> spots = [];
+  List<_ReadingPoint> _selectedReadings = [];
+  String? _selectedMetric;
   bool isLoading = false;
   bool hubsLoading = true;
 
@@ -42,6 +53,12 @@ class _HistoryChartWidgetState extends State<HistoryChartWidget> {
   }
 
   @override
+  void dispose() {
+    _realtimeService.dispose();
+    super.dispose();
+  }
+
+  @override
   void didUpdateWidget(covariant HistoryChartWidget oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.fixedHubId != null && widget.fixedHubId != selectedHubId) {
@@ -49,7 +66,10 @@ class _HistoryChartWidgetState extends State<HistoryChartWidget> {
         selectedHubId = widget.fixedHubId;
         historySensors = [];
         spots = [];
+        _selectedReadings = [];
+        _selectedMetric = null;
       });
+      _startRealtimeForHub(selectedHubId);
       loadChart();
       return;
     }
@@ -83,11 +103,144 @@ class _HistoryChartWidgetState extends State<HistoryChartWidget> {
             : int.tryParse(nextHubId?.toString() ?? '');
         hubsLoading = false;
       });
+      _startRealtimeForHub(selectedHubId);
       if (selectedHubId != null) loadChart();
     } catch (e) {
       debugPrint("Hubs load error: $e");
       setState(() => hubsLoading = false);
     }
+  }
+
+  void _startRealtimeForHub(int? hubId) {
+    if (hubId == null) {
+      _realtimeService.dispose();
+      return;
+    }
+
+    _realtimeService.listenHubData(
+      hubId: hubId,
+      onChanged: (event) {
+        if (!mounted || _selectedMetric == null) return;
+
+        double nextValue;
+        switch (_selectedMetric) {
+          case 'temperature':
+            nextValue = event.temperature;
+            break;
+          case 'humidity':
+            nextValue = event.humidity;
+            break;
+          case 'pressure':
+            nextValue = event.pressure;
+            break;
+          default:
+            return;
+        }
+
+        final nextTime = DateTime.tryParse(event.updatedAt) ?? DateTime.now();
+
+        if (_selectedReadings.isNotEmpty) {
+          final last = _selectedReadings.last;
+          if (last.time.isAtSameMomentAs(nextTime) &&
+              (last.value - nextValue).abs() < 0.0001) {
+            return;
+          }
+        }
+
+        setState(() {
+          _selectedReadings
+              .add(_ReadingPoint(time: nextTime, value: nextValue));
+          if (_selectedReadings.length > 100) {
+            _selectedReadings.removeAt(0);
+          }
+          _rebuildSpots();
+        });
+      },
+      onError: (error) {
+        debugPrint('History realtime error: $error');
+      },
+    );
+  }
+
+  DateTime? _parseReadingTime(dynamic reading) {
+    final timeStr = reading["recordedAt"] ??
+        reading["time"] ??
+        reading["timestamp"] ??
+        reading["updatedAt"];
+    if (timeStr == null) return null;
+    return DateTime.tryParse(timeStr.toString());
+  }
+
+  double? _extractReadingValue(dynamic reading) {
+    dynamic raw =
+        reading['value'] ?? reading['v1'] ?? reading['v2'] ?? reading['v3'];
+    if (raw == null) return null;
+    if (raw is num) return raw.toDouble();
+    return double.tryParse(raw.toString());
+  }
+
+  String _resolveMetricFromSensor(dynamic sensor) {
+    final typeName =
+        (sensor['typeName'] ?? sensor['name'] ?? sensor['sensorName'] ?? '')
+            .toString()
+            .toLowerCase();
+
+    if (typeName.contains('temp') ||
+        typeName.contains('nhiệt') ||
+        typeName.contains('nhiet')) {
+      return 'temperature';
+    }
+    if (typeName.contains('humid') ||
+        typeName.contains('độ ẩm') ||
+        typeName.contains('do am')) {
+      return 'humidity';
+    }
+    if (typeName.contains('press') ||
+        typeName.contains('áp suất') ||
+        typeName.contains('ap suat')) {
+      return 'pressure';
+    }
+
+    // Fallback for unknown sensor naming.
+    return 'temperature';
+  }
+
+  void _rebuildSpots() {
+    if (_selectedReadings.isEmpty) {
+      spots = [];
+      return;
+    }
+
+    final sorted = List<_ReadingPoint>.from(_selectedReadings)
+      ..sort((a, b) => a.time.compareTo(b.time));
+
+    final deduped = <_ReadingPoint>[];
+    for (final p in sorted) {
+      if (deduped.isEmpty) {
+        deduped.add(p);
+        continue;
+      }
+
+      final last = deduped.last;
+      final diffMs = p.time.difference(last.time).inMilliseconds.abs();
+
+      // Keep only one point for very close timestamps to avoid vertical spikes.
+      if (diffMs < 1000) {
+        deduped[deduped.length - 1] = p;
+      } else {
+        deduped.add(p);
+      }
+    }
+
+    final minTime = deduped.first.time;
+    spots = deduped
+        .map(
+          (p) => FlSpot(
+            p.time.difference(minTime).inMilliseconds / 60000,
+            p.value,
+          ),
+        )
+        .toList();
   }
 
   Future<void> loadChart() async {
@@ -151,95 +304,26 @@ class _HistoryChartWidgetState extends State<HistoryChartWidget> {
       return;
     }
 
-    // Convert readings to spots
-    final List<Map<String, dynamic>> readings =
-        readingsRaw.map((e) => Map<String, dynamic>.from(e)).toList();
+    final readings = readingsRaw
+        .map((e) => Map<String, dynamic>.from(e))
+        .toList(growable: false);
 
-    // Sort by time ascending
-    readings.sort((a, b) {
-      final t1Str = a["recordedAt"] ??
-          a["time"] ??
-          a["timestamp"] ??
-          a["updatedAt"] ??
-          "";
-      final t2Str = b["recordedAt"] ??
-          b["time"] ??
-          b["timestamp"] ??
-          b["updatedAt"] ??
-          "";
-      final t1 = DateTime.tryParse(t1Str) ?? DateTime.now();
-      final t2 = DateTime.tryParse(t2Str) ?? DateTime.now();
-      return t1.compareTo(t2);
-    });
-
-    // Sort readings by time to prevent "crossed lines" in the chart
-    readings.sort((a, b) {
-      final aTimeStr = a["recordedAt"] ?? a["time"] ?? a["timestamp"] ?? "";
-      final bTimeStr = b["recordedAt"] ?? b["time"] ?? b["timestamp"] ?? "";
-      try {
-        final aTime = DateTime.parse(aTimeStr);
-        final bTime = DateTime.parse(bTimeStr);
-        return aTime.compareTo(bTime);
-      } catch (e) {
-        return 0;
-      }
-    });
-
-    List<FlSpot> newSpots = [];
-    double? lastX;
-
-    for (int i = 0; i < readings.length; i++) {
-      final reading = readings[i];
-      double val = 0;
-
-      if (reading['value'] != null) {
-        val = (reading['value'] is num)
-            ? reading['value'].toDouble()
-            : double.tryParse(reading['value'].toString()) ?? 0;
-      } else if (reading['v1'] != null) {
-        val = (reading['v1'] is num) ? reading['v1'].toDouble() : 0;
-      } else if (reading['v2'] != null) {
-        val = (reading['v2'] is num) ? reading['v2'].toDouble() : 0;
-      } else if (reading['v3'] != null) {
-        val = (reading['v3'] is num) ? reading['v3'].toDouble() : 0;
-      }
-
-      if (val == 0) continue;
-
-      final timeStr = reading["recordedAt"] ??
-          reading["time"] ??
-          reading["timestamp"] ??
-          reading["updatedAt"];
-
-      if (timeStr != null) {
-        try {
-          final time = DateTime.parse(timeStr);
-          final x = time.millisecondsSinceEpoch.toDouble();
-
-          // Skip if same timestamp or too close (within 1 second) to avoid vertical artifacts
-          if (lastX != null && (x - lastX).abs() < 1000) continue;
-
-          newSpots.add(FlSpot(x, val));
-          lastX = x;
-        } catch (e) {
-          continue;
-        }
-      }
+    final apiPoints = <_ReadingPoint>[];
+    for (final reading in readings) {
+      final time = _parseReadingTime(reading);
+      final value = _extractReadingValue(reading);
+      if (time == null || value == null) continue;
+      apiPoints.add(_ReadingPoint(time: time, value: value));
     }
 
-    // Normalize X (minutes from start) for better rendering
-    if (newSpots.isNotEmpty) {
-      final double minX = newSpots[0].x;
-      // Convert ms to minutes for a more manageable scale
-      newSpots =
-          newSpots.map((s) => FlSpot((s.x - minX) / 60000, s.y)).toList();
-    }
+    apiPoints.sort((a, b) => a.time.compareTo(b.time));
 
-    // Sort spots by X to ensure fl_chart draws a continuous line
-    newSpots.sort((a, b) => a.x.compareTo(b.x));
+    final metric = _resolveMetricFromSensor(sensor);
 
     setState(() {
-      spots = newSpots;
+      _selectedMetric = metric;
+      _selectedReadings = apiPoints;
+      _rebuildSpots();
       selectedSensorId = sensor['sensorId'] ?? sensor['id'];
       isLoading = false;
     });
@@ -371,7 +455,10 @@ class _HistoryChartWidgetState extends State<HistoryChartWidget> {
                       selectedHubId = val;
                       historySensors = [];
                       spots = [];
+                      _selectedReadings = [];
+                      _selectedMetric = null;
                     });
+                    _startRealtimeForHub(val);
                     loadChart();
                   },
                 ),

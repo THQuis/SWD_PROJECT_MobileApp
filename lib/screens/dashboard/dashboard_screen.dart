@@ -33,8 +33,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
   bool isEnvironmentLoading = false;
   RealtimeHubData? _realtimeHubData;
   bool? _realtimeHubOnline;
-  int _chartRealtimeTick = 0;
-  DateTime? _lastChartRealtimeRefresh;
 
   @override
   void initState() {
@@ -137,19 +135,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
           _realtimeHubData = data;
           _realtimeHubOnline = online;
         });
-
-        final now = DateTime.now();
-        final shouldRefreshChart = _lastChartRealtimeRefresh == null ||
-            now.difference(_lastChartRealtimeRefresh!) >=
-                const Duration(seconds: 8);
-        if (shouldRefreshChart) {
-          _lastChartRealtimeRefresh = now;
-          if (mounted) {
-            setState(() {
-              _chartRealtimeTick++;
-            });
-          }
-        }
       },
       onError: (error) {
         debugPrint('Dashboard realtime data error: $error');
@@ -551,7 +536,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     HistoryChartWidget(
                       fixedHubId: selectedHubId,
                       allowHubSelection: false,
-                      realtimeRefreshTick: _chartRealtimeTick,
                     ),
 
                     // ================= ALERTS =================
