@@ -4,6 +4,7 @@ import 'package:fl_chart/fl_chart.dart';
 import '../../services/dashboard_service.dart';
 import '../../services/auth_service.dart';
 import '../../services/hub_service.dart';
+import '../../services/realtime_alert_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/notification_bell.dart';
 import '../login/login_screen.dart';
@@ -19,6 +20,7 @@ class DashboardScreen extends StatefulWidget {
 class _DashboardScreenState extends State<DashboardScreen> {
   final DashboardService _service = DashboardService();
   final HubService _hubService = HubService();
+  final RealtimeAlertService _realtimeService = RealtimeAlertService();
 
   Map<String, dynamic>? stats;
   Map<String, dynamic>? environment;
@@ -29,6 +31,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   bool isLoading = true;
   bool isEnvironmentLoading = false;
+  RealtimeHubData? _realtimeHubData;
+  bool? _realtimeHubOnline;
+  int _chartRealtimeTick = 0;
+  DateTime? _lastChartRealtimeRefresh;
 
   @override
   void initState() {
@@ -48,6 +54,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
     } else {
       _loadDashboard();
     }
+  }
+
+  @override
+  void dispose() {
+    _realtimeService.dispose();
+    super.dispose();
   }
 
   Future<void> _loadDashboard() async {
@@ -86,10 +98,76 @@ class _DashboardScreenState extends State<DashboardScreen> {
         environment = envData;
         isLoading = false;
       });
+      _startRealtimeForHub(nextHubId);
     } catch (e) {
       debugPrint("Dashboard error: $e");
       setState(() => isLoading = false);
     }
+  }
+
+  void _startRealtimeForHub(int? hubId) {
+    if (hubId == null) {
+      _realtimeService.dispose();
+      if (!mounted) return;
+      setState(() {
+        _realtimeHubData = null;
+        _realtimeHubOnline = null;
+      });
+      return;
+    }
+
+    _realtimeService.listenHubData(
+      hubId: hubId,
+      onChanged: (data) {
+        if (!mounted) return;
+
+        final onlineRaw = data.raw['IsOnline'] ?? data.raw['isOnline'];
+        bool? online;
+        if (onlineRaw is bool) {
+          online = onlineRaw;
+        } else if (onlineRaw is num) {
+          online = onlineRaw != 0;
+        } else if (onlineRaw != null) {
+          final normalized = onlineRaw.toString().toLowerCase().trim();
+          online =
+              normalized == 'true' || normalized == '1' || normalized == 'yes';
+        }
+
+        setState(() {
+          _realtimeHubData = data;
+          _realtimeHubOnline = online;
+        });
+
+        final now = DateTime.now();
+        final shouldRefreshChart = _lastChartRealtimeRefresh == null ||
+            now.difference(_lastChartRealtimeRefresh!) >=
+                const Duration(seconds: 8);
+        if (shouldRefreshChart) {
+          _lastChartRealtimeRefresh = now;
+          if (mounted) {
+            setState(() {
+              _chartRealtimeTick++;
+            });
+          }
+        }
+      },
+      onError: (error) {
+        debugPrint('Dashboard realtime data error: $error');
+      },
+    );
+
+    _realtimeService.listenAllHubsRealtime(
+      hubIds: [hubId],
+      onChanged: (snapshot) {
+        if (!mounted) return;
+        setState(() {
+          _realtimeHubOnline = snapshot.isOnline;
+        });
+      },
+      onError: (error) {
+        debugPrint('Dashboard realtime hub status error: $error');
+      },
+    );
   }
 
   int? _parseHubId(dynamic hub) {
@@ -116,7 +194,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
         selectedHubId = hubId;
         selectedHubName = _resolveHubName(hubId, hubs);
         environment = null;
+        _realtimeHubData = null;
+        _realtimeHubOnline = null;
       });
+      _startRealtimeForHub(hubId);
       return;
     }
 
@@ -134,6 +215,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         environment = envData;
         isEnvironmentLoading = false;
       });
+      _startRealtimeForHub(hubId);
     } catch (e) {
       debugPrint('Environment load error: $e');
       if (!mounted) return;
@@ -141,12 +223,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
         environment = null;
         isEnvironmentLoading = false;
       });
+      _startRealtimeForHub(hubId);
     }
   }
 
   // ================= ENV PARSE =================
 
   double _getEnvValue(String type) {
+    if (_realtimeHubData != null) {
+      final typeLower = type.toLowerCase();
+      if (typeLower == 'temperature') return _realtimeHubData!.temperature;
+      if (typeLower == 'humidity') return _realtimeHubData!.humidity;
+      if (typeLower == 'pressure') return _realtimeHubData!.pressure;
+    }
+
     if (environment == null) return 0;
 
     // Handle both { "sensors": [...] } and direct list [...]
@@ -219,6 +309,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
       }
     }
     return '';
+  }
+
+  bool? _resolveHubOnlineStatus() {
+    if (_realtimeHubOnline != null) return _realtimeHubOnline;
+
+    final status = environment?['hubStatus']?.toString().toLowerCase();
+    if (status == 'online') return true;
+    if (status == 'offline') return false;
+    return null;
   }
 
   @override
@@ -382,10 +481,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       ),
 
                     const SizedBox(height: 8),
-                    Text(
-                      'Showing data for: $selectedHubName',
-                      style: TextStyle(
-                          color: Colors.white.withOpacity(0.65), fontSize: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            'Showing data for: $selectedHubName',
+                            style: TextStyle(
+                                color: Colors.white.withOpacity(0.65),
+                                fontSize: 12),
+                          ),
+                        ),
+                        _hubStatusBadge(),
+                      ],
                     ),
                     const SizedBox(height: 12),
 
@@ -395,22 +502,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         child: Center(child: CircularProgressIndicator()),
                       )
                     else ...[
-                      // Hub status badge
-                      if (environment?['hubStatus'] == 'offline')
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 8),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 8, vertical: 4),
-                            decoration: BoxDecoration(
-                                color: Colors.red,
-                                borderRadius: BorderRadius.circular(12)),
-                            child: const Text("HUB OFFLINE",
-                                style: TextStyle(
-                                    color: Colors.white, fontSize: 12)),
-                          ),
-                        ),
-
                       // individual cards for each metric, wrap to next line on narrow
                       Column(
                         children: [
@@ -460,6 +551,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     HistoryChartWidget(
                       fixedHubId: selectedHubId,
                       allowHubSelection: false,
+                      realtimeRefreshTick: _chartRealtimeTick,
                     ),
 
                     // ================= ALERTS =================
@@ -565,7 +657,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ? "${value.toStringAsFixed(1)}%"
             : "${value.toStringAsFixed(1)} hPa";
 
-    bool hubOffline = environment?['hubStatus'] == 'offline';
+    bool hubOffline = (environment?['hubStatus'] == 'offline') ||
+        (_realtimeHubOnline != null && _realtimeHubOnline == false);
 
     return Container(
       width: double.infinity,
@@ -641,6 +734,65 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   ],
                 ),
               ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _hubStatusBadge() {
+    final online = _resolveHubOnlineStatus();
+    final isOnline = online == true;
+    final isOffline = online == false;
+
+    final bg = isOnline
+        ? Colors.green.withOpacity(0.15)
+        : isOffline
+            ? Colors.red.withOpacity(0.15)
+            : Colors.white.withOpacity(0.08);
+    final border = isOnline
+        ? Colors.greenAccent.withOpacity(0.6)
+        : isOffline
+            ? Colors.redAccent.withOpacity(0.7)
+            : Colors.white30;
+    final dot = isOnline
+        ? Colors.greenAccent
+        : isOffline
+            ? Colors.redAccent
+            : Colors.white54;
+    final label = isOnline
+        ? 'ONLINE'
+        : isOffline
+            ? 'OFFLINE'
+            : 'UNKNOWN';
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: border),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 8,
+            height: 8,
+            decoration: BoxDecoration(color: dot, shape: BoxShape.circle),
+          ),
+          const SizedBox(width: 6),
+          Text(
+            'Hub $label',
+            style: TextStyle(
+              color: isOnline
+                  ? Colors.greenAccent
+                  : isOffline
+                      ? Colors.redAccent
+                      : Colors.white70,
+              fontWeight: FontWeight.bold,
+              fontSize: 11,
             ),
           ),
         ],

@@ -15,29 +15,35 @@ class _LoginScreenState extends State<LoginScreen> {
 
   bool isLoading = false;
 
- Future<void> _login() async {
-  setState(() => isLoading = true);
+  @override
+  void initState() {
+    super.initState();
+    emailController.text = 'manager@example.com';
+    passwordController.text = '111';
+  }
 
-  try {
-    final result = await AuthService.login(
-      email: emailController.text.trim(),
-      password: passwordController.text,
-    );
+  Future<void> _login() async {
+    setState(() => isLoading = true);
 
+    try {
+      final result = await AuthService.login(
+        email: emailController.text.trim(),
+        password: passwordController.text,
+      );
 
+      if (!mounted) return;
 
-    if (!mounted) return;
-
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(
-        builder: (_) => const DashboardScreen(),
-      ),
-    );
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (_) => const DashboardScreen(),
+        ),
+      );
     } catch (e) {
       String errorMsg = e.toString();
       if (errorMsg.contains('TimeoutException')) {
-        errorMsg = 'Server is starting up (Render cold start). Please try again in 30 seconds.';
+        errorMsg =
+            'Server is starting up (Render cold start). Please try again in 30 seconds.';
       }
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -48,7 +54,7 @@ class _LoginScreenState extends State<LoginScreen> {
     } finally {
       if (mounted) setState(() => isLoading = false);
     }
-}
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -64,7 +70,8 @@ class _LoginScreenState extends State<LoginScreen> {
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 380),
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 40),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 24, vertical: 40),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [

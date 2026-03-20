@@ -35,7 +35,8 @@ class DashboardService {
     }
   }
 
-  Future<Map<String, dynamic>> getCurrentEnvironment(String token, int hubId) async {
+  Future<Map<String, dynamic>> getCurrentEnvironment(
+      String token, int hubId) async {
     final response = await http.get(
       Uri.parse("$baseUrl/dashboard/hub/$hubId/current-environment"),
       headers: {
@@ -53,19 +54,13 @@ class DashboardService {
   }
 
   Future<List<dynamic>> getHistory(
-    String token, int hubId, String from, String to) async {
-    final baseUri = Uri.parse(baseUrl);
-    // Based on hubService.getReadings in Web, the endpoint is likely under /hubs
-    final uri = Uri(
-      scheme: baseUri.scheme,
-      host: baseUri.host,
-      path: "${baseUri.path}/hubs/$hubId/readings",
+      String token, int hubId, String from, String to) async {
+    final uri = Uri.parse('$baseUrl/hubs/$hubId/readings').replace(
       queryParameters: {
-        "from": from,
-        "to": to,
+        'from': from,
+        'to': to,
       },
     );
-    print("🌐 CALLING API: $uri");
     final response = await http.get(
       uri,
       headers: {
@@ -77,16 +72,16 @@ class DashboardService {
     if (response.statusCode == 200) {
       final body = jsonDecode(response.body);
       final data = body["data"];
-      
+
       if (data is Map && data.containsKey('sensors')) {
-        return data['sensors'] ?? [];
+        final sensors = data['sensors'];
+        return sensors is List ? sensors : [];
       }
       if (data is List) {
         return data;
       }
       return [];
     } else {
-      print("❌ HISTORY API ERROR: ${response.statusCode} - ${response.body}");
       throw Exception("Failed to load history data: ${response.statusCode}");
     }
   }

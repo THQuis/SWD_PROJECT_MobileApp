@@ -6,6 +6,7 @@ import '../../services/sensor_service.dart';
 import '../../services/auth_service.dart';
 import '../../services/hub_service.dart';
 import '../../services/site_service.dart';
+import '../../services/realtime_alert_service.dart';
 import '../../widgets/app_drawer.dart';
 
 class SensorsScreen extends StatefulWidget {
@@ -20,6 +21,7 @@ class SensorsScreen extends StatefulWidget {
 class _SensorsScreenState extends State<SensorsScreen> {
   final SensorService _sensorService = SensorService();
   final SiteService _siteService = SiteService();
+  final RealtimeAlertService _realtimeAlertService = RealtimeAlertService();
 
   List<dynamic> sensors = [];
   List<dynamic> _hubScopedSensors = [];
@@ -46,6 +48,10 @@ class _SensorsScreenState extends State<SensorsScreen> {
   int onlineCount = 0;
   int offlineCount = 0;
 
+  RealtimeAlertEvent? _activeRealtimeAlert;
+  RealtimeHubData? _realtimeHubData;
+  String? _lastRealtimeAlertFingerprint;
+
   bool get _isHubScoped => widget.initialHubId != null;
 
   @override
@@ -53,7 +59,16 @@ class _SensorsScreenState extends State<SensorsScreen> {
     super.initState();
     selectedHubId = widget.initialHubId;
     selectedHubName = widget.initialHubName;
+    if (selectedHubId != null) {
+      _startRealtimeListeners(selectedHubId!);
+    }
     _initialLoad();
+  }
+
+  @override
+  void dispose() {
+    _realtimeAlertService.dispose();
+    super.dispose();
   }
 
   Future<void> _initialLoad() async {
@@ -138,6 +153,53 @@ class _SensorsScreenState extends State<SensorsScreen> {
         setState(() => errorMessage = e.toString());
       }
     }
+  }
+
+  void _startRealtimeListeners(int hubId) {
+    _realtimeAlertService.listenHubData(
+      hubId: hubId,
+      onChanged: (data) {
+        if (!mounted) return;
+        setState(() => _realtimeHubData = data);
+        debugPrint(
+            'Realtime Data -> temp: ${data.temperature}, hum: ${data.humidity}, time: ${data.updatedAt}');
+      },
+      onError: (error) {
+        debugPrint('Realtime data listener error: $error');
+      },
+    );
+
+    _realtimeAlertService.listenHubAlert(
+      hubId: hubId,
+      onChanged: (event) {
+        if (!mounted) return;
+
+        if (event == null) {
+          setState(() => _activeRealtimeAlert = null);
+          return;
+        }
+
+        final fingerprint = '${event.ruleName}|${event.message}|${event.time}';
+        if (_lastRealtimeAlertFingerprint == fingerprint) return;
+
+        setState(() {
+          _activeRealtimeAlert = event;
+          _lastRealtimeAlertFingerprint = fingerprint;
+        });
+        debugPrint(
+            'Realtime Alert -> ${event.ruleName}: ${event.message} @ ${event.time}');
+      },
+      onError: (error) {
+        debugPrint('Realtime alert listener error: $error');
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Realtime alert unavailable: $error'),
+            backgroundColor: Colors.orangeAccent,
+          ),
+        );
+      },
+    );
   }
 
   void _applyHubScopedView() {
@@ -307,6 +369,14 @@ class _SensorsScreenState extends State<SensorsScreen> {
               _header(),
               const SizedBox(height: 24),
               _summaryCards(cardColor, borderColor),
+              if (_realtimeHubData != null) ...[
+                const SizedBox(height: 14),
+                _realtimeDataCards(cardColor, borderColor),
+              ],
+              if (_activeRealtimeAlert != null) ...[
+                const SizedBox(height: 16),
+                _realtimeAlertBanner(),
+              ],
               const SizedBox(height: 24),
               _filterSection(cardColor, borderColor),
               const SizedBox(height: 24),
@@ -507,6 +577,17 @@ class _SensorsScreenState extends State<SensorsScreen> {
                 currentPage = 1;
                 isLoading = true;
               });
+
+              if (val != null) {
+                _startRealtimeListeners(val);
+              } else {
+                _realtimeAlertService.dispose();
+                setState(() {
+                  _activeRealtimeAlert = null;
+                  _realtimeHubData = null;
+                });
+              }
+
               _initialLoad();
             },
             cardColor: cardColor,
@@ -605,6 +686,100 @@ class _SensorsScreenState extends State<SensorsScreen> {
           padding: const EdgeInsets.symmetric(horizontal: 16),
         ),
       ),
+    );
+  }
+
+  Widget _realtimeAlertBanner() {
+    final alert = _activeRealtimeAlert;
+    if (alert == null) return const SizedBox.shrink();
+
+    String formattedTime;
+    final parsed = DateTime.tryParse(alert.time);
+    if (parsed != null) {
+      formattedTime = parsed.toLocal().toString();
+    } else {
+      formattedTime = alert.time;
+    }
+
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 250),
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.redAccent.withOpacity(0.16),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.redAccent.withOpacity(0.55)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.warning_amber_rounded,
+              color: Colors.redAccent, size: 22),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  alert.ruleName,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  alert.message,
+                  style: const TextStyle(color: Colors.white70, fontSize: 12),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'Time: $formattedTime',
+                  style: const TextStyle(color: Colors.white54, fontSize: 11),
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.close, color: Colors.white54, size: 18),
+            onPressed: () => setState(() => _activeRealtimeAlert = null),
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _realtimeDataCards(Color cardColor, Color borderColor) {
+    final data = _realtimeHubData;
+    if (data == null) return const SizedBox.shrink();
+
+    return Row(
+      children: [
+        Expanded(
+          child: _statCard(
+            Icons.thermostat,
+            'REALTIME TEMP',
+            '${data.temperature.toStringAsFixed(1)}°C',
+            Colors.orangeAccent,
+            cardColor,
+            borderColor,
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: _statCard(
+            Icons.water_drop,
+            'REALTIME HUM',
+            '${data.humidity.toStringAsFixed(1)}%',
+            Colors.lightBlueAccent,
+            cardColor,
+            borderColor,
+          ),
+        ),
+      ],
     );
   }
 

@@ -7,11 +7,13 @@ import '../services/hub_service.dart';
 class HistoryChartWidget extends StatefulWidget {
   final int? fixedHubId;
   final bool allowHubSelection;
+  final int realtimeRefreshTick;
 
   const HistoryChartWidget({
     super.key,
     this.fixedHubId,
     this.allowHubSelection = true,
+    this.realtimeRefreshTick = 0,
   });
 
   @override
@@ -48,6 +50,13 @@ class _HistoryChartWidgetState extends State<HistoryChartWidget> {
         historySensors = [];
         spots = [];
       });
+      loadChart();
+      return;
+    }
+
+    if (widget.realtimeRefreshTick != oldWidget.realtimeRefreshTick &&
+        selectedHubId != null &&
+        !isLoading) {
       loadChart();
     }
   }
