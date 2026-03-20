@@ -7,6 +7,7 @@ import '../../services/hub_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/notification_bell.dart';
 import '../login/login_screen.dart';
+import '../../widgets/history_chart_widget.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -286,23 +287,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     const SizedBox(height: 30),
 
                     // ================= CHART =================
-                    const Text("Temperature Trend",
+                    const SizedBox(height: 30),
+
+                    const Text("Historical Chart",
                         style: TextStyle(
                             color: Colors.white,
                             fontSize: 18,
                             fontWeight: FontWeight.bold)),
+
                     const SizedBox(height: 12),
 
-                    _glassContainer(
-                      opacity: 0.05,
-                      child: Container(
-                        height: 240,
-                        padding: const EdgeInsets.fromLTRB(8, 24, 24, 12),
-                        child: LineChart(_buildChart()),
-                      ),
-                    ),
-
-                    const SizedBox(height: 30),
+                    HistoryChartWidget(),
 
                     // ================= ALERTS =================
                     const Text("Recent Alerts",
