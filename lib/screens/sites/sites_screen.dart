@@ -24,7 +24,6 @@ class _SitesScreenState extends State<SitesScreen> {
   bool _isLoading = true;
   String? _error;
   String _searchQuery = '';
-  String _siteFilter = 'all';
 
   @override
   void initState() {
@@ -76,26 +75,14 @@ class _SitesScreenState extends State<SitesScreen> {
       final name = (s['name'] ?? '').toString().toLowerCase();
       final address = (s['address'] ?? '').toString().toLowerCase();
       final org = (s['orgName'] ?? '').toString().toLowerCase();
-      final hubCount = int.tryParse((s['hubCount'] ?? 0).toString()) ?? 0;
 
       final matchQuery = query.isEmpty ||
           name.contains(query) ||
           address.contains(query) ||
           org.contains(query);
 
-      final matchFilter = _siteFilter == 'all' ||
-          (_siteFilter == 'with_hub' && hubCount > 0) ||
-          (_siteFilter == 'without_hub' && hubCount == 0);
-
-      return matchQuery && matchFilter;
+      return matchQuery;
     }).toList();
-  }
-
-  void _setSiteFilter(String filter) {
-    setState(() {
-      _siteFilter = filter;
-      _filteredSites = _computeFilteredSites();
-    });
   }
 
   void _openAddSiteDialog() {
@@ -231,8 +218,6 @@ class _SitesScreenState extends State<SitesScreen> {
                       _statsStrip(),
                       const SizedBox(height: 16),
                       _searchBar(),
-                      const SizedBox(height: 12),
-                      _filterChips(),
                       const SizedBox(height: 24),
                       _sitesGrid(),
                     ],
@@ -365,49 +350,6 @@ class _SitesScreenState extends State<SitesScreen> {
     );
   }
 
-  Widget _filterChips() {
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
-      children: [
-        _chip('All Sites', 'all'),
-        _chip('With Hubs', 'with_hub'),
-        _chip('No Hubs', 'without_hub'),
-      ],
-    );
-  }
-
-  Widget _chip(String label, String value) {
-    final selected = _siteFilter == value;
-    return InkWell(
-      borderRadius: BorderRadius.circular(30),
-      onTap: () => _setSiteFilter(value),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-        decoration: BoxDecoration(
-          color: selected
-              ? const Color(0xFF0EA5E9).withOpacity(0.2)
-              : Colors.white.withOpacity(0.04),
-          borderRadius: BorderRadius.circular(30),
-          border: Border.all(
-            color: selected
-                ? const Color(0xFF0EA5E9).withOpacity(0.7)
-                : Colors.white.withOpacity(0.08),
-          ),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            color: selected ? const Color(0xFF67E8F9) : Colors.white70,
-            fontSize: 12,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-      ),
-    );
-  }
-
   Widget _statsStrip() {
     final withHub = _allSites
         .where((s) => (int.tryParse((s['hubCount'] ?? 0).toString()) ?? 0) > 0)
@@ -506,6 +448,7 @@ class _SitesScreenState extends State<SitesScreen> {
     final org = site['orgName'] ?? 'Co.opmart';
     final hubsCount = site['hubCount']?.toString() ?? '0';
     final hasHub = (int.tryParse(hubsCount) ?? 0) > 0;
+    final List<int> hubIds = _extractHubIds(site);
 
     return _glassContainer(
       opacity: 0.06,
@@ -558,7 +501,10 @@ class _SitesScreenState extends State<SitesScreen> {
               onTap: () => Navigator.push(
                 context,
                 MaterialPageRoute(
-                  builder: (context) => HubsScreen(initialSiteName: name),
+                  builder: (context) => HubsScreen(
+                    initialSiteName: name,
+                    initialHubIds: hubIds,
+                  ),
                 ),
               ),
               child: Text(
@@ -628,5 +574,25 @@ class _SitesScreenState extends State<SitesScreen> {
         ),
       ),
     );
+  }
+
+  List<int> _extractHubIds(dynamic site) {
+    if (site is! Map) return [];
+    final hubs = site['hubs'];
+    if (hubs is! List) return [];
+
+    final ids = <int>[];
+    for (final h in hubs) {
+      if (h is! Map) continue;
+      final dynamic id =
+          h['hubId'] ?? h['id'] ?? h['Id'] ?? h['ID'] ?? h['hub_id'];
+      if (id is int) {
+        ids.add(id);
+      } else {
+        final parsed = int.tryParse(id?.toString() ?? '');
+        if (parsed != null) ids.add(parsed);
+      }
+    }
+    return ids;
   }
 }

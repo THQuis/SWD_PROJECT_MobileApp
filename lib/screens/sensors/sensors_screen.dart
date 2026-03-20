@@ -20,7 +20,8 @@ class _SensorsScreenState extends State<SensorsScreen> {
   final SiteService _siteService = SiteService();
 
   List<dynamic> sensors = [];
-   List<dynamic> sites = [];
+  List<dynamic> _hubScopedSensors = [];
+  List<dynamic> sites = [];
   List<dynamic> types = [];
   List<dynamic> hubs = [];
   final HubService _hubService = HubService();
@@ -43,6 +44,8 @@ class _SensorsScreenState extends State<SensorsScreen> {
   int onlineCount = 0;
   int offlineCount = 0;
 
+  bool get _isHubScoped => widget.initialHubId != null;
+
   @override
   void initState() {
     super.initState();
@@ -54,11 +57,18 @@ class _SensorsScreenState extends State<SensorsScreen> {
   Future<void> _initialLoad() async {
     if (!mounted) return;
     setState(() => isLoading = true);
-    await Future.wait([
-      _loadFilters(),
-      _loadStats(),
-      _loadSensors(),
-    ]);
+    if (_isHubScoped) {
+      await Future.wait([
+        _loadFilters(),
+        _loadHubScopedSensors(),
+      ]);
+    } else {
+      await Future.wait([
+        _loadFilters(),
+        _loadStats(),
+        _loadSensors(),
+      ]);
+    }
     if (mounted) setState(() => isLoading = false);
   }
 
@@ -66,13 +76,20 @@ class _SensorsScreenState extends State<SensorsScreen> {
     final token = AuthService.token;
     if (token == null) return;
     try {
-      final fetchedSites = await _siteService.fetchSites(token);
       final fetchedTypes = await _sensorService.fetchSensorTypes(token);
-      final fetchedHubs = await _hubService.fetchHubs(token);
+      final uniqueTypes = _deduplicateTypes(fetchedTypes);
+      List<dynamic> fetchedSites = [];
+      List<dynamic> fetchedHubs = [];
+
+      if (!_isHubScoped) {
+        fetchedSites = await _siteService.fetchSites(token);
+        fetchedHubs = await _hubService.fetchHubs(token);
+      }
+
       if (mounted) {
         setState(() {
           sites = fetchedSites;
-          types = fetchedTypes;
+          types = uniqueTypes;
           hubs = fetchedHubs;
         });
       }
@@ -81,14 +98,96 @@ class _SensorsScreenState extends State<SensorsScreen> {
     }
   }
 
+  List<dynamic> _deduplicateTypes(List<dynamic> source) {
+    final seen = <String>{};
+    final result = <dynamic>[];
+
+    for (final item in source) {
+      if (item is! Map) continue;
+      final name = (item['typeName'] ?? item['name'] ?? '').toString().trim();
+      if (name.isEmpty) continue;
+      final key = name.toLowerCase();
+
+      if (seen.contains(key)) continue;
+      seen.add(key);
+      result.add(item);
+    }
+
+    return result;
+  }
+
+  Future<void> _loadHubScopedSensors() async {
+    if (!mounted) return;
+    setState(() => errorMessage = null);
+
+    try {
+      final token = AuthService.token;
+      final hubId = widget.initialHubId;
+      if (token == null || hubId == null) {
+        setState(() => errorMessage = 'Chưa đăng nhập');
+        return;
+      }
+
+      final result = await _sensorService.fetchSensorsByHubId(token, hubId);
+      _hubScopedSensors = List<dynamic>.from(result['data'] ?? []);
+      _applyHubScopedView();
+    } catch (e) {
+      if (mounted) {
+        setState(() => errorMessage = e.toString());
+      }
+    }
+  }
+
+  void _applyHubScopedView() {
+    final typeFiltered = selectedTypeId == null
+        ? _hubScopedSensors
+        : _hubScopedSensors
+            .where((s) => s['typeId'] == selectedTypeId)
+            .toList();
+
+    final safeTotal = typeFiltered.length;
+    final safeTotalPages =
+        safeTotal == 0 ? 1 : ((safeTotal - 1) ~/ pageSize) + 1;
+    if (currentPage > safeTotalPages) currentPage = safeTotalPages;
+    if (currentPage < 1) currentPage = 1;
+
+    final start = (currentPage - 1) * pageSize;
+    final end = (start + pageSize) > safeTotal ? safeTotal : (start + pageSize);
+    final pageData =
+        start >= safeTotal ? <dynamic>[] : typeFiltered.sublist(start, end);
+
+    int online = 0;
+    int offline = 0;
+    for (final s in _hubScopedSensors) {
+      final status = (s['status'] ?? '').toString().toLowerCase();
+      if (status.contains('online') || status == 'active') {
+        online++;
+      } else {
+        offline++;
+      }
+    }
+
+    if (!mounted) return;
+    setState(() {
+      sensors = pageData;
+      totalCount = safeTotal;
+      totalPages = safeTotalPages;
+      totalSensorsCount = _hubScopedSensors.length;
+      onlineCount = online;
+      offlineCount = offline;
+    });
+  }
+
   Future<void> _loadStats() async {
     final token = AuthService.token;
     if (token == null) return;
     try {
       final results = await Future.wait([
         _sensorService.fetchSensors(token, hubId: selectedHubId, pageSize: 1),
-        _sensorService.fetchSensors(token, hubId: selectedHubId, status: 'Active', pageSize: 1),
-        _sensorService.fetchSensors(token, hubId: selectedHubId, status: 'Inactive', pageSize: 1),
+        _sensorService.fetchSensors(token,
+            hubId: selectedHubId, status: 'Active', pageSize: 1),
+        _sensorService.fetchSensors(token,
+            hubId: selectedHubId, status: 'Inactive', pageSize: 1),
       ]);
 
       if (mounted) {
@@ -96,9 +195,11 @@ class _SensorsScreenState extends State<SensorsScreen> {
           totalSensorsCount = results[0]['totalCount'] ?? 0;
           onlineCount = results[1]['totalCount'] ?? 0;
           offlineCount = results[2]['totalCount'] ?? 0;
-          
-          if (totalSensorsCount > 0 && offlineCount == 0 && onlineCount < totalSensorsCount) {
-             offlineCount = totalSensorsCount - onlineCount;
+
+          if (totalSensorsCount > 0 &&
+              offlineCount == 0 &&
+              onlineCount < totalSensorsCount) {
+            offlineCount = totalSensorsCount - onlineCount;
           }
         });
       }
@@ -247,8 +348,10 @@ class _SensorsScreenState extends State<SensorsScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                   Text(
-                    selectedHubId != null ? 'Sensors in $selectedHubName' : 'IoT Sensors',
+                  Text(
+                    selectedHubId != null
+                        ? 'Sensors in $selectedHubName'
+                        : 'IoT Sensors',
                     style: const TextStyle(
                       color: Colors.white,
                       fontSize: 24,
@@ -271,8 +374,10 @@ class _SensorsScreenState extends State<SensorsScreen> {
                 backgroundColor: Colors.blueAccent,
                 foregroundColor: Colors.white,
                 elevation: 0,
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10)),
               ),
             ),
           ],
@@ -320,7 +425,8 @@ class _SensorsScreenState extends State<SensorsScreen> {
     );
   }
 
-  Widget _statCard(IconData icon, String label, String value, Color color, Color cardColor, Color borderColor) {
+  Widget _statCard(IconData icon, String label, String value, Color color,
+      Color cardColor, Color borderColor) {
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 12),
       decoration: BoxDecoration(
@@ -334,12 +440,16 @@ class _SensorsScreenState extends State<SensorsScreen> {
           const SizedBox(height: 12),
           Text(
             label,
-            style: const TextStyle(color: Colors.white38, fontSize: 10, fontWeight: FontWeight.bold),
+            style: const TextStyle(
+                color: Colors.white38,
+                fontSize: 10,
+                fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 4),
           Text(
             value,
-            style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold),
+            style: const TextStyle(
+                color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold),
           ),
         ],
       ),
@@ -352,59 +462,78 @@ class _SensorsScreenState extends State<SensorsScreen> {
       runSpacing: 12,
       crossAxisAlignment: WrapCrossAlignment.center,
       children: [
-        _filterDropdown<int>(
-          hint: 'Sites',
-          value: selectedSiteId,
-          items: sites.map((s) => DropdownMenuItem<int>(
-            value: s['siteId'],
-            child: Text(s['name'] ?? 'Site ${s['siteId']}', style: const TextStyle(color: Colors.white)),
-          )).toList(),
-          onChanged: (val) {
-            setState(() {
-              selectedSiteId = val;
-              currentPage = 1;
-              isLoading = true;
-            });
-            _initialLoad(); // reload everything as site affects hubs and stats
-          },
-          cardColor: cardColor,
-          borderColor: borderColor,
-        ),
-        _filterDropdown<int>(
-          hint: 'Hubs',
-          value: selectedHubId,
-          items: hubs.where((h) => selectedSiteId == null || h['siteId'] == selectedSiteId).map((h) => DropdownMenuItem<int>(
-            value: h['hubId'],
-            child: Text(h['name'] ?? 'Hub ${h['hubId']}', style: const TextStyle(color: Colors.white)),
-          )).toList(),
-          onChanged: (val) {
-            setState(() {
-              selectedHubId = val;
-              selectedHubName = hubs.firstWhere((h) => h['hubId'] == val, orElse: () => {'name': 'Hub $val'})['name'];
-              currentPage = 1;
-              isLoading = true;
-            });
-            _initialLoad(); // reload everything as hub affects stats
-          },
-          cardColor: cardColor,
-          borderColor: borderColor,
-        ),
+        if (!_isHubScoped)
+          _filterDropdown<int>(
+            hint: 'Sites',
+            value: selectedSiteId,
+            items: sites
+                .map((s) => DropdownMenuItem<int>(
+                      value: s['siteId'],
+                      child: Text(s['name'] ?? 'Site ${s['siteId']}',
+                          style: const TextStyle(color: Colors.white)),
+                    ))
+                .toList(),
+            onChanged: (val) {
+              setState(() {
+                selectedSiteId = val;
+                currentPage = 1;
+                isLoading = true;
+              });
+              _initialLoad();
+            },
+            cardColor: cardColor,
+            borderColor: borderColor,
+          ),
+        if (!_isHubScoped)
+          _filterDropdown<int>(
+            hint: 'Hubs',
+            value: selectedHubId,
+            items: hubs
+                .where((h) =>
+                    selectedSiteId == null || h['siteId'] == selectedSiteId)
+                .map((h) => DropdownMenuItem<int>(
+                      value: h['hubId'],
+                      child: Text(h['name'] ?? 'Hub ${h['hubId']}',
+                          style: const TextStyle(color: Colors.white)),
+                    ))
+                .toList(),
+            onChanged: (val) {
+              setState(() {
+                selectedHubId = val;
+                selectedHubName = hubs.firstWhere((h) => h['hubId'] == val,
+                    orElse: () => {'name': 'Hub $val'})['name'];
+                currentPage = 1;
+                isLoading = true;
+              });
+              _initialLoad();
+            },
+            cardColor: cardColor,
+            borderColor: borderColor,
+          ),
         _filterDropdown<int>(
           hint: 'Types',
           value: selectedTypeId,
-          items: types.map((t) => DropdownMenuItem<int>(
-            value: t['typeId'],
-            child: Text(t['typeName'] ?? 'Type ${t['typeId']}', style: const TextStyle(color: Colors.white)),
-          )).toList(),
+          items: types
+              .map((t) => DropdownMenuItem<int>(
+                    value: t['typeId'],
+                    child: Text(t['typeName'] ?? 'Type ${t['typeId']}',
+                        style: const TextStyle(color: Colors.white)),
+                  ))
+              .toList(),
           onChanged: (val) {
             setState(() {
               selectedTypeId = val;
               currentPage = 1;
               isLoading = true;
             });
-            _loadSensors().then((_) {
+            if (_isHubScoped) {
+              _applyHubScopedView();
               if (mounted) setState(() => isLoading = false);
-            });
+            } else {
+              _loadSensors().then((_) {
+                if (mounted) setState(() => isLoading = false);
+              });
+            }
           },
           cardColor: cardColor,
           borderColor: borderColor,
@@ -423,7 +552,8 @@ class _SensorsScreenState extends State<SensorsScreen> {
     required Color borderColor,
   }) {
     // Ensure the selected value exists in the items to avoid Flutter assertion errors
-    final bool valueExists = value == null || items.any((item) => item.value == value);
+    final bool valueExists =
+        value == null || items.any((item) => item.value == value);
     final T? safeValue = valueExists ? value : null;
 
     return Container(
@@ -437,13 +567,15 @@ class _SensorsScreenState extends State<SensorsScreen> {
       child: DropdownButtonHideUnderline(
         child: DropdownButton<T>(
           value: safeValue,
-          hint: Text(hint, style: const TextStyle(color: Colors.white70, fontSize: 13)),
+          hint: Text(hint,
+              style: const TextStyle(color: Colors.white70, fontSize: 13)),
           dropdownColor: cardColor,
           icon: const Icon(Icons.keyboard_arrow_down, color: Colors.white38),
           items: [
             DropdownMenuItem<T>(
               value: null,
-              child: Text('All $hint', style: const TextStyle(color: Colors.white)),
+              child: Text('All $hint',
+                  style: const TextStyle(color: Colors.white)),
             ),
             ...items,
           ],
@@ -466,7 +598,8 @@ class _SensorsScreenState extends State<SensorsScreen> {
         style: OutlinedButton.styleFrom(
           foregroundColor: Colors.white,
           side: BorderSide(color: borderColor),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           padding: const EdgeInsets.symmetric(horizontal: 16),
         ),
       ),
@@ -478,7 +611,7 @@ class _SensorsScreenState extends State<SensorsScreen> {
       children: sensors.map((s) {
         final status = s['status'] as String?;
         final color = _statusColor(status);
-        
+
         return Container(
           margin: const EdgeInsets.only(bottom: 12),
           decoration: BoxDecoration(
@@ -505,12 +638,16 @@ class _SensorsScreenState extends State<SensorsScreen> {
                   children: [
                     Text(
                       s['sensorName'] ?? 'Unnamed',
-                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
+                      style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 15),
                     ),
                     const SizedBox(height: 4),
                     Text(
                       '${s['typeName'] ?? 'Type'} • ${s['hubName'] ?? 'Hub'}',
-                      style: const TextStyle(color: Colors.white60, fontSize: 12),
+                      style:
+                          const TextStyle(color: Colors.white60, fontSize: 12),
                     ),
                   ],
                 ),
@@ -519,14 +656,19 @@ class _SensorsScreenState extends State<SensorsScreen> {
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                     decoration: BoxDecoration(
                       color: color.withOpacity(0.1),
                       borderRadius: BorderRadius.circular(6),
                     ),
                     child: Text(
                       (status ?? 'OFFLINE').toUpperCase(),
-                      style: TextStyle(color: color, fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 0.5),
+                      style: TextStyle(
+                          color: color,
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 0.5),
                     ),
                   ),
                   const SizedBox(height: 4),
@@ -544,17 +686,22 @@ class _SensorsScreenState extends State<SensorsScreen> {
                     },
                     itemBuilder: (ctx) => [
                       const PopupMenuItem(
-                        value: 'alert', 
+                        value: 'alert',
                         child: Row(
                           children: [
-                            Icon(Icons.notifications_active_outlined, size: 18, color: Colors.blueAccent),
+                            Icon(Icons.notifications_active_outlined,
+                                size: 18, color: Colors.blueAccent),
                             SizedBox(width: 8),
                             Text('Cấu hình cảnh báo'),
                           ],
                         ),
                       ),
-                      const PopupMenuItem(value: 'edit', child: Text('Chỉnh sửa')),
-                      const PopupMenuItem(value: 'delete', child: Text('Xóa', style: TextStyle(color: Colors.redAccent))),
+                      const PopupMenuItem(
+                          value: 'edit', child: Text('Chỉnh sửa')),
+                      const PopupMenuItem(
+                          value: 'delete',
+                          child: Text('Xóa',
+                              style: TextStyle(color: Colors.redAccent))),
                     ],
                   ),
                 ],
@@ -571,15 +718,22 @@ class _SensorsScreenState extends State<SensorsScreen> {
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
         IconButton(
-          onPressed: currentPage > 1 ? () {
-            setState(() {
-              currentPage--;
-              isLoading = true;
-            });
-            _loadSensors().then((_) {
-              if (mounted) setState(() => isLoading = false);
-            });
-          } : null,
+          onPressed: currentPage > 1
+              ? () {
+                  setState(() {
+                    currentPage--;
+                    isLoading = true;
+                  });
+                  if (_isHubScoped) {
+                    _applyHubScopedView();
+                    if (mounted) setState(() => isLoading = false);
+                  } else {
+                    _loadSensors().then((_) {
+                      if (mounted) setState(() => isLoading = false);
+                    });
+                  }
+                }
+              : null,
           icon: const Icon(Icons.arrow_back_ios_new, size: 18),
           color: Colors.white,
           disabledColor: Colors.white10,
@@ -587,19 +741,27 @@ class _SensorsScreenState extends State<SensorsScreen> {
         const SizedBox(width: 16),
         Text(
           'Page $currentPage of $totalPages',
-          style: const TextStyle(color: Colors.white70, fontSize: 13, fontWeight: FontWeight.w500),
+          style: const TextStyle(
+              color: Colors.white70, fontSize: 13, fontWeight: FontWeight.w500),
         ),
         const SizedBox(width: 16),
         IconButton(
-          onPressed: currentPage < totalPages ? () {
-            setState(() {
-              currentPage++;
-              isLoading = true;
-            });
-            _loadSensors().then((_) {
-              if (mounted) setState(() => isLoading = false);
-            });
-          } : null,
+          onPressed: currentPage < totalPages
+              ? () {
+                  setState(() {
+                    currentPage++;
+                    isLoading = true;
+                  });
+                  if (_isHubScoped) {
+                    _applyHubScopedView();
+                    if (mounted) setState(() => isLoading = false);
+                  } else {
+                    _loadSensors().then((_) {
+                      if (mounted) setState(() => isLoading = false);
+                    });
+                  }
+                }
+              : null,
           icon: const Icon(Icons.arrow_forward_ios, size: 18),
           color: Colors.white,
           disabledColor: Colors.white10,
@@ -616,7 +778,8 @@ class _SensorsScreenState extends State<SensorsScreen> {
           children: [
             const Icon(Icons.error_outline, color: Colors.redAccent, size: 40),
             const SizedBox(height: 16),
-            Text(errorMessage!, style: const TextStyle(color: Colors.redAccent)),
+            Text(errorMessage!,
+                style: const TextStyle(color: Colors.redAccent)),
             const SizedBox(height: 12),
             ElevatedButton(
               onPressed: _initialLoad,
@@ -631,11 +794,16 @@ class _SensorsScreenState extends State<SensorsScreen> {
   Color _statusColor(String? status) {
     if (status == null) return Colors.grey;
     switch (status.toLowerCase()) {
-      case 'active': return Colors.greenAccent;
-      case 'inactive': return Colors.redAccent;
-      case 'warning': return Colors.orangeAccent;
-      case 'critical': return Colors.redAccent;
-      default: return Colors.greenAccent;
+      case 'active':
+        return Colors.greenAccent;
+      case 'inactive':
+        return Colors.redAccent;
+      case 'warning':
+        return Colors.orangeAccent;
+      case 'critical':
+        return Colors.redAccent;
+      default:
+        return Colors.greenAccent;
     }
   }
 
@@ -644,16 +812,21 @@ class _SensorsScreenState extends State<SensorsScreen> {
       context: context,
       builder: (context) => AlertDialog(
         backgroundColor: const Color(0xFF1E1E1E),
-        title: const Text('Confirm Delete', style: TextStyle(color: Colors.white)),
-        content: const Text('Are you sure you want to delete this sensor?', style: TextStyle(color: Colors.white70)),
+        title:
+            const Text('Confirm Delete', style: TextStyle(color: Colors.white)),
+        content: const Text('Are you sure you want to delete this sensor?',
+            style: TextStyle(color: Colors.white70)),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('CANCEL')),
+          TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('CANCEL')),
           TextButton(
             onPressed: () {
               Navigator.pop(context);
               _deleteSensor(id);
             },
-            child: const Text('DELETE', style: TextStyle(color: Colors.redAccent)),
+            child:
+                const Text('DELETE', style: TextStyle(color: Colors.redAccent)),
           ),
         ],
       ),

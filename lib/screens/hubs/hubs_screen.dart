@@ -11,7 +11,8 @@ import 'edit_hub_dialog.dart';
 
 class HubsScreen extends StatefulWidget {
   final String? initialSiteName;
-  const HubsScreen({super.key, this.initialSiteName});
+  final List<int>? initialHubIds;
+  const HubsScreen({super.key, this.initialSiteName, this.initialHubIds});
 
   @override
   State<HubsScreen> createState() => _HubsScreenState();
@@ -25,16 +26,29 @@ class _HubsScreenState extends State<HubsScreen> {
   List<dynamic> _filteredHubs = [];
   bool _isLoading = true;
   String? _error;
+  String _searchQuery = '';
+  String _statusFilter = 'all';
 
   @override
   void initState() {
     super.initState();
-    _loadHubs().then((_) {
-      if (widget.initialSiteName != null) {
-        _searchController.text = widget.initialSiteName!;
-        _filterHubs(widget.initialSiteName!);
-      }
-    });
+    if (widget.initialHubIds != null && widget.initialHubIds!.isNotEmpty) {
+      _loadHubsByIds(widget.initialHubIds!);
+    } else {
+      _loadHubs().then((_) {
+        if (widget.initialSiteName != null) {
+          _searchController.text = widget.initialSiteName!;
+          _filterHubs(widget.initialSiteName!);
+        }
+      });
+    }
+  }
+
+  Future<void> _refreshData() {
+    if (widget.initialHubIds != null && widget.initialHubIds!.isNotEmpty) {
+      return _loadHubsByIds(widget.initialHubIds!);
+    }
+    return _loadHubs();
   }
 
   Future<void> _loadHubs() async {
@@ -53,9 +67,10 @@ class _HubsScreenState extends State<HubsScreen> {
       }
 
       final data = await _hubService.fetchHubs(token);
+      final enrichedData = await _hubService.enrichHubsWithDetails(token, data);
       setState(() {
-        _allHubs = data;
-        _filteredHubs = data;
+        _allHubs = enrichedData;
+        _filteredHubs = _computeFilteredHubs();
         _isLoading = false;
       });
     } catch (e) {
@@ -67,15 +82,64 @@ class _HubsScreenState extends State<HubsScreen> {
     }
   }
 
+  Future<void> _loadHubsByIds(List<int> hubIds) async {
+    setState(() {
+      _isLoading = true;
+      _error = null;
+    });
+    try {
+      final token = AuthService.token;
+      if (token == null) {
+        setState(() {
+          _error = "No session found. Please login again.";
+          _isLoading = false;
+        });
+        return;
+      }
+
+      final data = await _hubService.fetchHubsByIds(token, hubIds);
+      setState(() {
+        _allHubs = data;
+        _filteredHubs = _computeFilteredHubs();
+        _isLoading = false;
+      });
+    } catch (e) {
+      debugPrint("Load hubs by id error: $e");
+      setState(() {
+        _error = "Error loading hubs: $e";
+        _isLoading = false;
+      });
+    }
+  }
+
   void _filterHubs(String query) {
     setState(() {
-      _filteredHubs = _allHubs.where((h) {
-        final name = (h['name'] ?? '').toLowerCase();
-        final site = (h['siteName'] ?? '').toLowerCase();
-        final mac = (h['macAddress'] ?? '').toLowerCase();
-        final q = query.toLowerCase();
-        return name.contains(q) || site.contains(q) || mac.contains(q);
-      }).toList();
+      _searchQuery = query;
+      _filteredHubs = _computeFilteredHubs();
+    });
+  }
+
+  List<dynamic> _computeFilteredHubs() {
+    final q = _searchQuery.trim().toLowerCase();
+    return _allHubs.where((h) {
+      final name = (h['name'] ?? '').toString().toLowerCase();
+      final site = (h['siteName'] ?? '').toString().toLowerCase();
+      final mac = (h['macAddress'] ?? '').toString().toLowerCase();
+      final online = h['isOnline'] == true;
+
+      final queryMatch =
+          q.isEmpty || name.contains(q) || site.contains(q) || mac.contains(q);
+      final statusMatch = _statusFilter == 'all' ||
+          (_statusFilter == 'online' && online) ||
+          (_statusFilter == 'offline' && !online);
+      return queryMatch && statusMatch;
+    }).toList();
+  }
+
+  void _setStatusFilter(String value) {
+    setState(() {
+      _statusFilter = value;
+      _filteredHubs = _computeFilteredHubs();
     });
   }
 
@@ -84,7 +148,7 @@ class _HubsScreenState extends State<HubsScreen> {
       context: context,
       builder: (_) => AddHubDialog(
         onSuccess: () {
-          _loadHubs();
+          _refreshData();
         },
       ),
     );
@@ -96,7 +160,7 @@ class _HubsScreenState extends State<HubsScreen> {
       builder: (_) => EditHubDialog(
         hub: hub,
         onSuccess: () {
-          _loadHubs();
+          _refreshData();
         },
       ),
     );
@@ -117,7 +181,8 @@ class _HubsScreenState extends State<HubsScreen> {
           ),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text("DELETE", style: TextStyle(color: Colors.redAccent)),
+            child:
+                const Text("DELETE", style: TextStyle(color: Colors.redAccent)),
           ),
         ],
       ),
@@ -130,7 +195,7 @@ class _HubsScreenState extends State<HubsScreen> {
 
         final success = await _hubService.deleteHub(token, hub['hubId']);
         if (success) {
-          _loadHubs();
+          _refreshData();
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(content: Text("Hub deleted successfully")),
@@ -139,7 +204,9 @@ class _HubsScreenState extends State<HubsScreen> {
         } else {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text("Failed to delete hub. It might have active sensors.")),
+              const SnackBar(
+                  content: Text(
+                      "Failed to delete hub. It might have active sensors.")),
             );
           }
         }
@@ -155,7 +222,9 @@ class _HubsScreenState extends State<HubsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final title = widget.initialSiteName != null ? "Hubs in ${widget.initialSiteName}" : "Hubs Management";
+    final title = widget.initialSiteName != null
+        ? "Hubs in ${widget.initialSiteName}"
+        : "Hubs Management";
 
     return Scaffold(
       backgroundColor: const Color(0xFF0D0D0D),
@@ -166,7 +235,8 @@ class _HubsScreenState extends State<HubsScreen> {
         iconTheme: const IconThemeData(color: Colors.white),
         title: Text(
           title,
-          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+          style:
+              const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
         ),
         actions: const [
           NotificationBell(),
@@ -176,7 +246,7 @@ class _HubsScreenState extends State<HubsScreen> {
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : RefreshIndicator(
-              onRefresh: _loadHubs,
+              onRefresh: _refreshData,
               child: SingleChildScrollView(
                 physics: const AlwaysScrollableScrollPhysics(),
                 padding: const EdgeInsets.all(24),
@@ -189,9 +259,13 @@ class _HubsScreenState extends State<HubsScreen> {
                     const SizedBox(height: 32),
                     if (_error != null) _errorView(),
                     if (_error == null) ...[
-                      _filterControls(),
+                      _statsStrip(),
+                      const SizedBox(height: 16),
+                      _searchBar(),
+                      const SizedBox(height: 12),
+                      _statusChips(),
                       const SizedBox(height: 24),
-                      _hubsTable(),
+                      _hubsGrid(),
                     ],
                   ],
                 ),
@@ -202,7 +276,8 @@ class _HubsScreenState extends State<HubsScreen> {
 
   Widget _backToSites() {
     return GestureDetector(
-      onTap: () => Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const SitesScreen())),
+      onTap: () => Navigator.pushReplacement(
+          context, MaterialPageRoute(builder: (_) => const SitesScreen())),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: const [
@@ -210,7 +285,10 @@ class _HubsScreenState extends State<HubsScreen> {
           SizedBox(width: 8),
           Text(
             "Back to Sites",
-            style: TextStyle(color: Color(0xFF0EA5E9), fontWeight: FontWeight.bold, fontSize: 13),
+            style: TextStyle(
+                color: Color(0xFF0EA5E9),
+                fontWeight: FontWeight.bold,
+                fontSize: 13),
           ),
         ],
       ),
@@ -218,75 +296,111 @@ class _HubsScreenState extends State<HubsScreen> {
   }
 
   Widget _header(String title) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(18),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            const Color(0xFF0EA5E9).withOpacity(0.16),
+            const Color(0xFF1A1F2C).withOpacity(0.35),
+          ],
+        ),
+        border: Border.all(color: Colors.white.withOpacity(0.08)),
+      ),
+      child: Wrap(
+        alignment: WrapAlignment.spaceBetween,
+        runSpacing: 16,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 520),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 28,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'Manage, troubleshoot, and jump into sensors from one streamlined view.',
+                  style: TextStyle(color: Colors.white70, fontSize: 13),
+                ),
+              ],
+            ),
+          ),
+          ElevatedButton.icon(
+            onPressed: _openAddHubDialog,
+            icon: const Icon(Icons.add_rounded, size: 20),
+            label: const Text('Add New Hub'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF111827),
+              foregroundColor: Colors.white,
+              elevation: 0,
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+                side: BorderSide(
+                    color: const Color(0xFF0EA5E9).withOpacity(0.35)),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _statsStrip() {
+    final total = _allHubs.length;
+    final online = _allHubs.where((h) => h['isOnline'] == true).length;
+    final offline = total - online;
+
     return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                title,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 28,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 8),
-              const Text(
-                'Configure and monitor gateway devices across all store locations.',
-                style: TextStyle(color: Colors.white54, fontSize: 13),
-              ),
-            ],
-          ),
+          child: _miniStat(
+              'Total Hubs', total.toString(), const Color(0xFF60A5FA)),
         ),
-        ElevatedButton.icon(
-          onPressed: _openAddHubDialog,
-          icon: const Icon(Icons.add_rounded, size: 20),
-          label: const Text('Add New Hub'),
-          style: ElevatedButton.styleFrom(
-            backgroundColor: const Color(0xFF1A1F2C),
-            foregroundColor: Colors.white,
-            elevation: 0,
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-          ),
+        const SizedBox(width: 10),
+        Expanded(
+          child:
+              _miniStat('Online', online.toString(), const Color(0xFF10B981)),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child:
+              _miniStat('Offline', offline.toString(), const Color(0xFFEF4444)),
         ),
       ],
     );
   }
 
-  Widget _filterControls() {
-    return Wrap(
-      spacing: 12,
-      runSpacing: 12,
-      children: [
-        _searchBar(),
-        _dropdownFilter("All Status"),
-        _dropdownFilter("Default"),
-        _dropdownFilter("ASC", icon: Icons.arrow_upward_rounded),
-      ],
-    );
-  }
-
-  Widget _dropdownFilter(String text, {IconData icon = Icons.keyboard_arrow_down}) {
+  Widget _miniStat(String label, String value, Color color) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
-        color: const Color(0xFF1A1F2C).withOpacity(0.3),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: Colors.white.withOpacity(0.1)),
+        color: Colors.white.withOpacity(0.05),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white.withOpacity(0.08)),
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (icon == Icons.arrow_upward_rounded) Icon(icon, color: Colors.white70, size: 16),
-          if (icon == Icons.arrow_upward_rounded) const SizedBox(width: 8),
-          Text(text, style: const TextStyle(color: Colors.white70, fontSize: 13)),
-          if (icon == Icons.keyboard_arrow_down) const SizedBox(width: 8),
-          if (icon == Icons.keyboard_arrow_down) Icon(icon, color: Colors.white38, size: 16),
+          Text(label,
+              style: TextStyle(
+                  color: Colors.white.withOpacity(0.6), fontSize: 11)),
+          const SizedBox(height: 4),
+          Text(value,
+              style: TextStyle(
+                  color: color, fontSize: 18, fontWeight: FontWeight.bold)),
         ],
       ),
     );
@@ -309,114 +423,200 @@ class _HubsScreenState extends State<HubsScreen> {
 
   Widget _searchBar() {
     return Container(
-      width: 300,
+      width: double.infinity,
       decoration: BoxDecoration(
         color: const Color(0xFF1A1F2C).withOpacity(0.3),
         borderRadius: BorderRadius.circular(10),
         border: Border.all(color: Colors.white.withOpacity(0.1)),
       ),
-      child: TextField(
-        controller: _searchController,
-        onChanged: _filterHubs,
-        style: const TextStyle(color: Colors.white, fontSize: 13),
-        decoration: const InputDecoration(
-          prefixIcon: Icon(Icons.search, color: Colors.white38, size: 18),
-          hintText: "Search by name or MAC...",
-          hintStyle: TextStyle(color: Colors.white38, fontSize: 13),
-          border: InputBorder.none,
-          contentPadding: EdgeInsets.symmetric(vertical: 14),
+      child: Row(
+        children: [
+          Expanded(
+            child: TextField(
+              controller: _searchController,
+              onChanged: _filterHubs,
+              style: const TextStyle(color: Colors.white, fontSize: 13),
+              decoration: const InputDecoration(
+                prefixIcon: Icon(Icons.search, color: Colors.white38, size: 18),
+                hintText: "Search by hub, site, MAC...",
+                hintStyle: TextStyle(color: Colors.white38, fontSize: 13),
+                border: InputBorder.none,
+                contentPadding: EdgeInsets.symmetric(vertical: 14),
+              ),
+            ),
+          ),
+          if (_searchController.text.isNotEmpty)
+            IconButton(
+              onPressed: () {
+                _searchController.clear();
+                _filterHubs('');
+              },
+              icon: const Icon(Icons.close_rounded, color: Colors.white38),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _statusChips() {
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: [
+        _chip('All', 'all'),
+        _chip('Online', 'online'),
+        _chip('Offline', 'offline'),
+      ],
+    );
+  }
+
+  Widget _chip(String label, String value) {
+    final selected = _statusFilter == value;
+    return InkWell(
+      onTap: () => _setStatusFilter(value),
+      borderRadius: BorderRadius.circular(30),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        decoration: BoxDecoration(
+          color: selected
+              ? const Color(0xFF0EA5E9).withOpacity(0.2)
+              : Colors.white.withOpacity(0.04),
+          borderRadius: BorderRadius.circular(30),
+          border: Border.all(
+            color: selected
+                ? const Color(0xFF0EA5E9).withOpacity(0.75)
+                : Colors.white.withOpacity(0.08),
+          ),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: selected ? const Color(0xFF67E8F9) : Colors.white70,
+            fontWeight: FontWeight.w600,
+            fontSize: 12,
+          ),
         ),
       ),
     );
   }
 
-  Widget _hubsTable() {
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: Container(
-        width: 1100, // increased from 1050 to prevent overflow
+  Widget _hubsGrid() {
+    if (_filteredHubs.isEmpty) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(vertical: 40),
         decoration: BoxDecoration(
-          color: const Color(0xFF141414).withOpacity(0.3),
+          color: Colors.white.withOpacity(0.03),
           borderRadius: BorderRadius.circular(16),
           border: Border.all(color: Colors.white.withOpacity(0.08)),
         ),
-        child: Column(
-          children: [
-            // Table Header
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
-              child: Row(
-                children: [
-                  SizedBox(width: 150, child: Text('HUB NAME', style: _tableHeaderStyle)),
-                  SizedBox(width: 150, child: Text('SITE NAME', style: _tableHeaderStyle)),
-                  SizedBox(width: 180, child: Text('MAC ADDRESS', style: _tableHeaderStyle)),
-                  SizedBox(width: 150, child: Text('SENSORS', style: _tableHeaderStyle)),
-                  SizedBox(width: 100, child: Text('STATUS', style: _tableHeaderStyle)),
-                  SizedBox(width: 200, child: Text('LAST HANDSHAKE', style: _tableHeaderStyle)),
-                  SizedBox(width: 120, child: const Text('ACTIONS', style: _tableHeaderStyle)),
-                ],
-              ),
-            ),
-            const Divider(color: Colors.white12, height: 1),
-            // Table Rows
-            if (_filteredHubs.isEmpty)
-              const Padding(
-                padding: EdgeInsets.all(48.0),
-                child: Text("No hubs found", style: TextStyle(color: Colors.white38)),
-              )
-            else
-              ..._filteredHubs.map((hub) => _hubRow(hub)).toList(),
-          ],
+        child: const Center(
+          child: Text('No hubs found', style: TextStyle(color: Colors.white38)),
         ),
-      ),
-    );
+      );
+    }
+
+    return LayoutBuilder(builder: (context, constraints) {
+      final width = constraints.maxWidth;
+      final int columns = width > 1200
+          ? 3
+          : width > 760
+              ? 2
+              : 1;
+      final cardWidth = (width - ((columns - 1) * 14)) / columns;
+
+      return Wrap(
+        spacing: 14,
+        runSpacing: 14,
+        children: _filteredHubs
+            .map((hub) => SizedBox(width: cardWidth, child: _hubCard(hub)))
+            .toList(),
+      );
+    });
   }
 
-  Widget _hubRow(dynamic hub) {
+  Widget _hubCard(dynamic hub) {
     final name = hub['name'] ?? 'Unknown Hub';
     final site = hub['siteName'] ?? 'Unassigned';
     final mac = hub['macAddress'] ?? 'N/A';
     final bool online = hub['isOnline'] ?? false;
-    final lastHandshake = "23:27:20 17/3/2026"; // Mock or format from BE data
+    final sensorCount = (hub['sensorCount'] ?? 0).toString();
+    final lastHandshake = _formatHandshake(hub['lastHandshake']);
 
     return Container(
       decoration: BoxDecoration(
-        border: Border(bottom: BorderSide(color: Colors.white.withOpacity(0.05))),
+        color: Colors.white.withOpacity(0.04),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white.withOpacity(0.08)),
       ),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
-        child: Row(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // HUB NAME
-            SizedBox(
-              width: 150,
-              child: Text(
-                name,
-                style: _rowTextStyle.copyWith(fontWeight: FontWeight.bold, color: Colors.white),
-              ),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: online
+                        ? const Color(0xFF0F1E16)
+                        : const Color(0xFF1E0F0F),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                      color: online
+                          ? const Color(0xFF153322)
+                          : const Color(0xFF331515),
+                    ),
+                  ),
+                  child: Text(
+                    online ? 'ONLINE' : 'OFFLINE',
+                    style: TextStyle(
+                      color:
+                          online ? const Color(0xFF10B981) : Colors.redAccent,
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
             ),
-            // SITE NAME
-            SizedBox(
-              width: 150,
-              child: Text(
-                site,
-                style: _rowTextStyle.copyWith(color: Colors.white38),
-              ),
+            const SizedBox(height: 8),
+            Text(
+              site,
+              style: TextStyle(
+                  color: Colors.white.withOpacity(0.68), fontSize: 13),
             ),
-            // MAC ADDRESS
-            SizedBox(
-              width: 180,
-              child: Text(
-                mac,
-                style: _rowTextStyle.copyWith(color: Colors.white38, fontSize: 13),
-              ),
+            const SizedBox(height: 6),
+            Text(
+              'MAC: $mac',
+              style: TextStyle(
+                  color: Colors.white.withOpacity(0.45), fontSize: 12),
             ),
-            // SENSORS (Interactive button)
-            SizedBox(
-              width: 150,
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: InkWell(
+            const SizedBox(height: 6),
+            Text(
+              'Last Handshake: $lastHandshake',
+              style: TextStyle(
+                  color: Colors.white.withOpacity(0.45), fontSize: 12),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                InkWell(
                   onTap: () => Navigator.push(
                     context,
                     MaterialPageRoute(
@@ -426,90 +626,36 @@ class _HubsScreenState extends State<HubsScreen> {
                       ),
                     ),
                   ),
+                  borderRadius: BorderRadius.circular(20),
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
                     decoration: BoxDecoration(
                       color: const Color(0xFF1A1F2C).withOpacity(0.5),
                       borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: const Color(0xFF0EA5E9).withOpacity(0.2)),
+                      border: Border.all(
+                          color: const Color(0xFF0EA5E9).withOpacity(0.25)),
                     ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: const [
-                        Text(
-                          "View Sensors",
-                          style: TextStyle(
-                            color: Color(0xFF0EA5E9),
-                            fontWeight: FontWeight.bold,
-                            fontSize: 12,
-                          ),
-                        ),
-                        SizedBox(width: 4),
-                        Icon(Icons.chevron_right_rounded, color: Color(0xFF0EA5E9), size: 14),
-                      ],
+                    child: Text(
+                      '$sensorCount sensors',
+                      style: const TextStyle(
+                        color: Color(0xFF0EA5E9),
+                        fontWeight: FontWeight.bold,
+                        fontSize: 12,
+                      ),
                     ),
                   ),
                 ),
-              ),
-            ),
-            // STATUS
-            SizedBox(
-              width: 100,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: online ? const Color(0xFF0F1E16) : const Color(0xFF1E0F0F),
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: online ? const Color(0xFF153322) : const Color(0xFF331515)),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Container(
-                      width: 6,
-                      height: 6,
-                      decoration: BoxDecoration(
-                        color: online ? const Color(0xFF10B981) : Colors.redAccent,
-                        shape: BoxShape.circle,
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      online ? 'ONLINE' : 'OFFLINE',
-                      style: TextStyle(
-                        color: online ? const Color(0xFF10B981) : Colors.redAccent,
-                        fontSize: 9,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            // LAST HANDSHAKE
-            SizedBox(
-              width: 200,
-              child: Text(
-                lastHandshake,
-                style: _rowTextStyle.copyWith(color: Colors.white38, fontSize: 12),
-              ),
-            ),
-            // ACTIONS
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
+                const Spacer(),
                 IconButton(
-                  icon: Icon(Icons.edit_outlined, color: Colors.white.withOpacity(0.3), size: 18),
+                  icon: Icon(Icons.edit_outlined,
+                      color: Colors.white.withOpacity(0.45), size: 18),
                   onPressed: () => _openEditHubDialog(hub),
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(),
                 ),
-                const SizedBox(width: 16),
                 IconButton(
-                  icon: Icon(Icons.delete_outline_rounded, color: Colors.white.withOpacity(0.3), size: 18),
+                  icon: Icon(Icons.delete_outline_rounded,
+                      color: Colors.white.withOpacity(0.45), size: 18),
                   onPressed: () => _deleteHub(hub),
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(),
                 ),
               ],
             ),
@@ -519,15 +665,17 @@ class _HubsScreenState extends State<HubsScreen> {
     );
   }
 
-  static const _tableHeaderStyle = TextStyle(
-    color: Colors.white54,
-    fontSize: 11,
-    fontWeight: FontWeight.bold,
-    letterSpacing: 0.8,
-  );
-
-  static const _rowTextStyle = TextStyle(
-    color: Colors.white,
-    fontSize: 14,
-  );
+  String _formatHandshake(dynamic raw) {
+    if (raw == null) return 'N/A';
+    final source = raw.toString();
+    final dt = DateTime.tryParse(source);
+    if (dt == null) return source;
+    final local = dt.toLocal();
+    final dd = local.day.toString().padLeft(2, '0');
+    final mm = local.month.toString().padLeft(2, '0');
+    final yyyy = local.year.toString();
+    final hh = local.hour.toString().padLeft(2, '0');
+    final min = local.minute.toString().padLeft(2, '0');
+    return '$dd/$mm/$yyyy $hh:$min';
+  }
 }

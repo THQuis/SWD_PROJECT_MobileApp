@@ -4,7 +4,39 @@ import 'package:http/http.dart' as http;
 class SensorService {
   static const String baseUrl = 'https://swd-project-api.onrender.com/api';
 
-  Future<Map<String, dynamic>> fetchSensors(String token, {
+  Future<Map<String, dynamic>> fetchSensorsByHubId(
+      String token, int hubId) async {
+    try {
+      final response = await http.get(
+        Uri.parse('$baseUrl/hubs/$hubId/sensors'),
+        headers: {
+          'Authorization': 'Bearer $token',
+          'accept': '*/*',
+        },
+      ).timeout(const Duration(seconds: 30));
+
+      if (response.statusCode == 200) {
+        final dynamic body = jsonDecode(response.body);
+        if (body is Map) {
+          return {
+            'data': body['data'] ?? [],
+            'totalCount': body['totalCount'] ??
+                ((body['data'] is List) ? (body['data'] as List).length : 0),
+            'totalPages': body['totalPages'] ?? 1,
+            'pageNumber': body['pageNumber'] ?? 1,
+            'message': body['message'],
+          };
+        }
+      }
+
+      throw Exception('Server error: ${response.statusCode}');
+    } catch (e) {
+      throw Exception('Connection error: $e');
+    }
+  }
+
+  Future<Map<String, dynamic>> fetchSensors(
+    String token, {
     int? siteId,
     int? hubId,
     int? typeId,
@@ -31,8 +63,9 @@ class SensorService {
       if (pageNumber != null) queryParams['pageNumber'] = pageNumber.toString();
       if (pageSize != null) queryParams['pageSize'] = pageSize.toString();
 
-      final uri = Uri.parse('$baseUrl/sensors').replace(queryParameters: queryParams);
-      
+      final uri =
+          Uri.parse('$baseUrl/sensors').replace(queryParameters: queryParams);
+
       final response = await http.get(
         uri,
         headers: {
@@ -40,7 +73,7 @@ class SensorService {
           'accept': '*/*',
         },
       ).timeout(const Duration(seconds: 30));
-      
+
       if (response.statusCode == 200) {
         final dynamic body = jsonDecode(response.body);
         if (body is Map) {
@@ -88,36 +121,42 @@ class SensorService {
   }
 
   Future<bool> addSensor(String token, Map<String, dynamic> data) async {
-    final response = await http.post(
-      Uri.parse('$baseUrl/sensors'),
-      headers: {
-        'Authorization': 'Bearer $token',
-        'Content-Type': 'application/json',
-        'accept': '*/*',
-      },
-      body: jsonEncode(data),
-    ).timeout(const Duration(seconds: 30));
+    final response = await http
+        .post(
+          Uri.parse('$baseUrl/sensors'),
+          headers: {
+            'Authorization': 'Bearer $token',
+            'Content-Type': 'application/json',
+            'accept': '*/*',
+          },
+          body: jsonEncode(data),
+        )
+        .timeout(const Duration(seconds: 30));
 
     if (response.statusCode == 200 || response.statusCode == 201) return true;
-    
+
     try {
       final errorData = jsonDecode(response.body);
-      throw Exception(errorData['message'] ?? 'Server error: ${response.statusCode}');
+      throw Exception(
+          errorData['message'] ?? 'Server error: ${response.statusCode}');
     } catch (_) {
       throw Exception('Server error: ${response.statusCode}');
     }
   }
 
-  Future<bool> updateSensor(String token, int sensorId, Map<String, dynamic> data) async {
-    final response = await http.put(
-      Uri.parse('$baseUrl/sensors/$sensorId'),
-      headers: {
-        'Authorization': 'Bearer $token',
-        'Content-Type': 'application/json',
-        'accept': '*/*',
-      },
-      body: jsonEncode(data),
-    ).timeout(const Duration(seconds: 30));
+  Future<bool> updateSensor(
+      String token, int sensorId, Map<String, dynamic> data) async {
+    final response = await http
+        .put(
+          Uri.parse('$baseUrl/sensors/$sensorId'),
+          headers: {
+            'Authorization': 'Bearer $token',
+            'Content-Type': 'application/json',
+            'accept': '*/*',
+          },
+          body: jsonEncode(data),
+        )
+        .timeout(const Duration(seconds: 30));
 
     return response.statusCode == 200;
   }
