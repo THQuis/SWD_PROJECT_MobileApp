@@ -23,6 +23,8 @@ class _SitesScreenState extends State<SitesScreen> {
   List<dynamic> _filteredSites = [];
   bool _isLoading = true;
   String? _error;
+  String _searchQuery = '';
+  String _siteFilter = 'all';
 
   @override
   void initState() {
@@ -48,7 +50,7 @@ class _SitesScreenState extends State<SitesScreen> {
       final data = await _siteService.fetchSites(token);
       setState(() {
         _allSites = data;
-        _filteredSites = data;
+        _filteredSites = _computeFilteredSites();
         _isLoading = false;
         _error = null;
       });
@@ -63,11 +65,36 @@ class _SitesScreenState extends State<SitesScreen> {
 
   void _filterSites(String query) {
     setState(() {
-      _filteredSites = _allSites
-          .where((s) =>
-              (s['name'] ?? '').toLowerCase().contains(query.toLowerCase()) ||
-              (s['address'] ?? '').toLowerCase().contains(query.toLowerCase()))
-          .toList();
+      _searchQuery = query;
+      _filteredSites = _computeFilteredSites();
+    });
+  }
+
+  List<dynamic> _computeFilteredSites() {
+    final query = _searchQuery.trim().toLowerCase();
+    return _allSites.where((s) {
+      final name = (s['name'] ?? '').toString().toLowerCase();
+      final address = (s['address'] ?? '').toString().toLowerCase();
+      final org = (s['orgName'] ?? '').toString().toLowerCase();
+      final hubCount = int.tryParse((s['hubCount'] ?? 0).toString()) ?? 0;
+
+      final matchQuery = query.isEmpty ||
+          name.contains(query) ||
+          address.contains(query) ||
+          org.contains(query);
+
+      final matchFilter = _siteFilter == 'all' ||
+          (_siteFilter == 'with_hub' && hubCount > 0) ||
+          (_siteFilter == 'without_hub' && hubCount == 0);
+
+      return matchQuery && matchFilter;
+    }).toList();
+  }
+
+  void _setSiteFilter(String filter) {
+    setState(() {
+      _siteFilter = filter;
+      _filteredSites = _computeFilteredSites();
     });
   }
 
@@ -109,7 +136,8 @@ class _SitesScreenState extends State<SitesScreen> {
           ),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text("DELETE", style: TextStyle(color: Colors.redAccent)),
+            child:
+                const Text("DELETE", style: TextStyle(color: Colors.redAccent)),
           ),
         ],
       ),
@@ -124,14 +152,16 @@ class _SitesScreenState extends State<SitesScreen> {
         if (success) {
           _loadSites();
           if (mounted) {
-             ScaffoldMessenger.of(context).showSnackBar(
+            ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(content: Text("Site deleted successfully")),
             );
           }
         } else {
-           if (mounted) {
+          if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text("Failed to delete site. It might have active hubs.")),
+              const SnackBar(
+                  content: Text(
+                      "Failed to delete site. It might have active hubs.")),
             );
           }
         }
@@ -198,9 +228,13 @@ class _SitesScreenState extends State<SitesScreen> {
                     const SizedBox(height: 24),
                     if (_error != null) _errorView(),
                     if (_error == null) ...[
+                      _statsStrip(),
+                      const SizedBox(height: 16),
                       _searchBar(),
+                      const SizedBox(height: 12),
+                      _filterChips(),
                       const SizedBox(height: 24),
-                      _sitesList(),
+                      _sitesGrid(),
                     ],
                   ],
                 ),
@@ -233,259 +267,360 @@ class _SitesScreenState extends State<SitesScreen> {
     return _glassContainer(
       opacity: 0.08,
       borderRadius: 12,
-      child: TextField(
-        controller: _searchController,
-        onChanged: _filterSites,
-        style: const TextStyle(color: Colors.white),
-        decoration: InputDecoration(
-          prefixIcon: const Icon(Icons.search, color: Colors.white38),
-          hintText: "Search sites...",
-          hintStyle: const TextStyle(color: Colors.white38),
-          border: InputBorder.none,
-          contentPadding: const EdgeInsets.symmetric(vertical: 15),
-        ),
+      child: Row(
+        children: [
+          Expanded(
+            child: TextField(
+              controller: _searchController,
+              onChanged: _filterSites,
+              style: const TextStyle(color: Colors.white),
+              decoration: const InputDecoration(
+                prefixIcon: Icon(Icons.search, color: Colors.white38),
+                hintText: "Search by site, address, org...",
+                hintStyle: TextStyle(color: Colors.white38),
+                border: InputBorder.none,
+                contentPadding: EdgeInsets.symmetric(vertical: 15),
+              ),
+            ),
+          ),
+          if (_searchController.text.isNotEmpty)
+            IconButton(
+              onPressed: () {
+                _searchController.clear();
+                _filterSites('');
+              },
+              icon: const Icon(Icons.close_rounded, color: Colors.white38),
+            ),
+        ],
       ),
     );
   }
 
   // ================= HEADER =================
   Widget _header() {
-    return Row(
-      children: [
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: const [
-              Text(
-                'IoT Sites Management',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 24,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              SizedBox(height: 6),
-              Text(
-                'Manage environmental monitoring sites.',
-                style: TextStyle(color: Colors.white54),
-              ),
+    return _glassContainer(
+      opacity: 0.08,
+      borderRadius: 20,
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              const Color(0xFF0EA5E9).withOpacity(0.18),
+              const Color(0xFF1A1F2C).withOpacity(0.35),
             ],
           ),
+          borderRadius: BorderRadius.circular(20),
         ),
-        ElevatedButton.icon(
-          onPressed: _openAddSiteDialog,
-          icon: const Icon(Icons.add_rounded, size: 20),
-          label: const Text('Add New Site'),
-          style: ElevatedButton.styleFrom(
-            backgroundColor: const Color(0xFF1A1F2C),
-            foregroundColor: Colors.white,
-            elevation: 0,
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  // ================= SITES TABLE =================
-  Widget _sitesList() {
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: Container(
-        width: 1000, // Explicit width for horizontal scroll
-        decoration: BoxDecoration(
-          color: const Color(0xFF141414).withOpacity(0.3),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Colors.white.withOpacity(0.08)),
-        ),
-        child: Column(
+        child: Wrap(
+          alignment: WrapAlignment.spaceBetween,
+          runSpacing: 16,
+          crossAxisAlignment: WrapCrossAlignment.center,
           children: [
-            // Table Header
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
-              child: Row(
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 460),
+              child: const Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  SizedBox(width: 150, child: Text('ORGANIZATION', style: _tableHeaderStyle)),
-                  SizedBox(width: 200, child: Text('SITE NAME', style: _tableHeaderStyle)),
-                  SizedBox(width: 120, child: Text('STATUS', style: _tableHeaderStyle)),
-                  SizedBox(width: 250, child: Text('ADDRESS', style: _tableHeaderStyle)),
-                  SizedBox(width: 100, child: Text('HUBS', style: _tableHeaderStyle)),
-                  const Text('ACTIONS', style: _tableHeaderStyle),
+                  Text(
+                    'IoT Sites Management',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  SizedBox(height: 6),
+                  Text(
+                    'Manage environmental monitoring sites with faster navigation and cleaner actions.',
+                    style: TextStyle(color: Colors.white70),
+                  ),
                 ],
               ),
             ),
-            const Divider(color: Colors.white12, height: 1),
-            // Table Rows
-            if (_filteredSites.isEmpty)
-              const Padding(
-                padding: EdgeInsets.all(48.0),
-                child: Text("No sites found", style: TextStyle(color: Colors.white38)),
-              )
-            else
-              ..._filteredSites.map((site) => _siteRow(site)).toList(),
+            ElevatedButton.icon(
+              onPressed: _openAddSiteDialog,
+              icon: const Icon(Icons.add_rounded, size: 20),
+              label: const Text('Add New Site'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF111827),
+                foregroundColor: Colors.white,
+                elevation: 0,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  side: BorderSide(
+                    color: const Color(0xFF0EA5E9).withOpacity(0.35),
+                  ),
+                ),
+              ),
+            ),
           ],
         ),
       ),
     );
   }
 
-  Widget _siteRow(dynamic site) {
+  Widget _filterChips() {
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: [
+        _chip('All Sites', 'all'),
+        _chip('With Hubs', 'with_hub'),
+        _chip('No Hubs', 'without_hub'),
+      ],
+    );
+  }
+
+  Widget _chip(String label, String value) {
+    final selected = _siteFilter == value;
+    return InkWell(
+      borderRadius: BorderRadius.circular(30),
+      onTap: () => _setSiteFilter(value),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+        decoration: BoxDecoration(
+          color: selected
+              ? const Color(0xFF0EA5E9).withOpacity(0.2)
+              : Colors.white.withOpacity(0.04),
+          borderRadius: BorderRadius.circular(30),
+          border: Border.all(
+            color: selected
+                ? const Color(0xFF0EA5E9).withOpacity(0.7)
+                : Colors.white.withOpacity(0.08),
+          ),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: selected ? const Color(0xFF67E8F9) : Colors.white70,
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _statsStrip() {
+    final withHub = _allSites
+        .where((s) => (int.tryParse((s['hubCount'] ?? 0).toString()) ?? 0) > 0)
+        .length;
+    final withoutHub = _allSites.length - withHub;
+
+    return Row(
+      children: [
+        Expanded(
+          child: _miniStat('Total Sites', _allSites.length.toString(),
+              const Color(0xFF60A5FA)),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: _miniStat(
+              'With Hubs', withHub.toString(), const Color(0xFF34D399)),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: _miniStat(
+              'No Hubs', withoutHub.toString(), const Color(0xFFFBBF24)),
+        ),
+      ],
+    );
+  }
+
+  Widget _miniStat(String title, String value, Color color) {
+    return _glassContainer(
+      opacity: 0.06,
+      borderRadius: 14,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(title,
+                style: TextStyle(
+                    color: Colors.white.withOpacity(0.55), fontSize: 11)),
+            const SizedBox(height: 4),
+            Text(
+              value,
+              style: TextStyle(
+                color: color,
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _sitesGrid() {
+    if (_filteredSites.isEmpty) {
+      return _glassContainer(
+        opacity: 0.04,
+        borderRadius: 16,
+        child: const Padding(
+          padding: EdgeInsets.symmetric(vertical: 40),
+          child: Center(
+            child:
+                Text('No sites found', style: TextStyle(color: Colors.white38)),
+          ),
+        ),
+      );
+    }
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.maxWidth;
+        final int columns = width > 1200
+            ? 3
+            : width > 760
+                ? 2
+                : 1;
+        final cardWidth = (width - ((columns - 1) * 14)) / columns;
+
+        return Wrap(
+          spacing: 14,
+          runSpacing: 14,
+          children: _filteredSites
+              .map((site) => SizedBox(
+                    width: cardWidth,
+                    child: _siteCard(site),
+                  ))
+              .toList(),
+        );
+      },
+    );
+  }
+
+  Widget _siteCard(dynamic site) {
     final name = site['name'] ?? 'Unknown Site';
     final address = site['address'] ?? 'No address provided';
     final org = site['orgName'] ?? 'Co.opmart';
     final hubsCount = site['hubCount']?.toString() ?? '0';
-    final bool isActive = true; // Assuming active from BE or mocking for UI
+    final hasHub = (int.tryParse(hubsCount) ?? 0) > 0;
 
-    return Container(
-      decoration: BoxDecoration(
-        border: Border(bottom: BorderSide(color: Colors.white.withOpacity(0.05))),
-      ),
+    return _glassContainer(
+      opacity: 0.06,
+      borderRadius: 16,
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
-        child: Row(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // ORGANIZATION
-            SizedBox(
-              width: 150,
-              child: Text(org, style: _rowTextStyle.copyWith(color: Colors.white70)),
-            ),
-            // SITE NAME (Interactive)
-            SizedBox(
-              width: 200,
-              child: GestureDetector(
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => HubsScreen(initialSiteName: name),
-                  ),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      name,
-                      style: _rowTextStyle.copyWith(
-                        fontWeight: FontWeight.bold,
-                        color: const Color(0xFF0EA5E9),
-                        decoration: TextDecoration.underline,
-                        decorationColor: const Color(0xFF0EA5E9).withOpacity(0.5),
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Row(
-                      children: [
-                        Icon(Icons.location_on_outlined, color: Colors.white.withOpacity(0.3), size: 12),
-                        const SizedBox(width: 4),
-                        Text(
-                          "21.0138, 105.5250", // Mock coordinates as in image
-                          style: TextStyle(color: Colors.white.withOpacity(0.3), fontSize: 10),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            // STATUS
-            SizedBox(
-              width: 120,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF0F1E16),
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: const Color(0xFF153322)),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Container(
-                      width: 6,
-                      height: 6,
-                      decoration: const BoxDecoration(
-                        color: Color(0xFF10B981),
-                        shape: BoxShape.circle,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    const Text(
-                      'ACTIVE',
-                      style: TextStyle(
-                        color: Color(0xFF10B981),
-                        fontSize: 10,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            // ADDRESS
-            SizedBox(
-              width: 250,
-              child: Text(
-                address,
-                style: _rowTextStyle.copyWith(color: Colors.white38, fontSize: 13),
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-            // HUBS (Interactive button)
-            SizedBox(
-              width: 100,
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: InkWell(
-                  onTap: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => HubsScreen(initialSiteName: name),
-                    ),
-                  ),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF1A1F2C).withOpacity(0.5),
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: const Color(0xFF0EA5E9).withOpacity(0.3)),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          hubsCount,
-                          style: const TextStyle(
-                            color: Color(0xFF0EA5E9),
-                            fontWeight: FontWeight.bold,
-                            fontSize: 14,
-                          ),
-                        ),
-                        const SizedBox(width: 6),
-                        Icon(Icons.chevron_right_rounded, color: Colors.white.withOpacity(0.5), size: 16),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ),
-            // ACTIONS
             Row(
-              mainAxisSize: MainAxisSize.min,
               children: [
-                IconButton(
-                  icon: Icon(Icons.edit_outlined, color: Colors.white.withOpacity(0.3), size: 18),
-                  onPressed: () => _openEditSiteDialog(site),
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(),
+                Expanded(
+                  child: Text(
+                    org,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                        color: Colors.white.withOpacity(0.64), fontSize: 12),
+                  ),
                 ),
-                const SizedBox(width: 16),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: hasHub
+                        ? const Color(0xFF0F1E16)
+                        : const Color(0xFF25160F),
+                    borderRadius: BorderRadius.circular(30),
+                    border: Border.all(
+                      color: hasHub
+                          ? const Color(0xFF153322)
+                          : const Color(0xFF4D2F16),
+                    ),
+                  ),
+                  child: Text(
+                    hasHub ? 'READY' : 'NEED HUB',
+                    style: TextStyle(
+                      color: hasHub
+                          ? const Color(0xFF10B981)
+                          : const Color(0xFFF59E0B),
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                )
+              ],
+            ),
+            const SizedBox(height: 10),
+            InkWell(
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => HubsScreen(initialSiteName: name),
+                ),
+              ),
+              child: Text(
+                name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: Color(0xFF22D3EE),
+                  fontWeight: FontWeight.w700,
+                  fontSize: 18,
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(Icons.location_on_outlined,
+                    color: Colors.white.withOpacity(0.35), size: 16),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    address,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                        color: Colors.white.withOpacity(0.58), fontSize: 12),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF1A1F2C).withOpacity(0.55),
+                    borderRadius: BorderRadius.circular(24),
+                  ),
+                  child: Text(
+                    '$hubsCount hubs',
+                    style: const TextStyle(
+                      color: Color(0xFF93C5FD),
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                const Spacer(),
                 IconButton(
-                  icon: Icon(Icons.delete_outline_rounded, color: Colors.white.withOpacity(0.3), size: 18),
+                  tooltip: 'Edit Site',
+                  icon: Icon(Icons.edit_outlined,
+                      color: Colors.white.withOpacity(0.45), size: 18),
+                  onPressed: () => _openEditSiteDialog(site),
+                ),
+                IconButton(
+                  tooltip: 'Delete Site',
+                  icon: Icon(Icons.delete_outline_rounded,
+                      color: Colors.white.withOpacity(0.45), size: 18),
                   onPressed: () => _deleteSite(site),
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(),
                 ),
               ],
             ),
@@ -494,17 +629,4 @@ class _SitesScreenState extends State<SitesScreen> {
       ),
     );
   }
-
-  static const _tableHeaderStyle = TextStyle(
-    color: Colors.white54,
-    fontSize: 11,
-    fontWeight: FontWeight.bold,
-    letterSpacing: 0.8,
-  );
-
-  static const _rowTextStyle = TextStyle(
-    color: Colors.white,
-    fontSize: 14,
-  );
-
 }

@@ -6,8 +6,13 @@ class SiteService {
 
   Future<List<dynamic>> fetchSites(String token) async {
     try {
+      final uri = Uri.parse(baseUrl).replace(
+        path: '/api/site',
+        queryParameters: {'sortOrder': 'asc'},
+      );
+
       final response = await http.get(
-        Uri.parse('$baseUrl/site'),
+        uri,
         headers: {
           'Authorization': 'Bearer $token',
           'accept': '*/*',
@@ -44,7 +49,8 @@ class SiteService {
     return response.statusCode == 200 || response.statusCode == 201;
   }
 
-  Future<bool> updateSite(String token, int siteId, Map<String, dynamic> data) async {
+  Future<bool> updateSite(
+      String token, int siteId, Map<String, dynamic> data) async {
     final response = await http.put(
       Uri.parse('$baseUrl/site/$siteId'),
       headers: {
